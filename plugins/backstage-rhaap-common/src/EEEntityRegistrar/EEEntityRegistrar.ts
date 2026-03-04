@@ -80,7 +80,7 @@ export const eeEntityRegistrarRef = createServiceRef<EEEntityRegistrar>({
     createServiceFactory({
       service,
       deps: {
-        logger: coreServices.logger,
+        logger: coreServices.rootLogger,
       },
       async factory({ logger }) {
         return new EEEntityRegistrar(logger);
