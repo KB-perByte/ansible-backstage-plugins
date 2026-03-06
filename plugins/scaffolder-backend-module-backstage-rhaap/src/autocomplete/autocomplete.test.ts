@@ -382,6 +382,8 @@ describe('ansible-aap:autocomplete', () => {
       config,
       logger,
       ansibleService: mockAnsibleService,
+      auth: mockAuthService,
+      discovery: mockDiscoveryService,
     });
 
     expect(response.results).toHaveLength(3);
@@ -427,6 +429,8 @@ describe('ansible-aap:autocomplete', () => {
       config: configWithOnlyGithub,
       logger,
       ansibleService: mockAnsibleService,
+      auth: mockAuthService,
+      discovery: mockDiscoveryService,
     });
 
     // Should have GitHub but no GitLab (since GitLab wasn't explicitly configured)
