@@ -189,7 +189,7 @@ describe('SCMResourcePicker', () => {
 
       await waitFor(() => {
         expect(mockScaffolderApi.autocomplete).toHaveBeenCalledWith({
-          token: '',
+          token: 'no-auth-required',
           resource: 'scm_integrations',
           provider: 'aap-api-cloud',
           context: {},

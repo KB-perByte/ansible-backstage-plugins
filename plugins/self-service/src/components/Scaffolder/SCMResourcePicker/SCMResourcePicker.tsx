@@ -78,7 +78,7 @@ export const SCMResourcePicker = (props: ScaffolderRJSFFieldProps) => {
       setLoading(true);
       scaffolderApi
         .autocomplete({
-          token: '', // No token needed for SCM integrations
+          token: 'no-auth-required', // SCM integrations are server-side config, no AAP auth needed
           resource: 'scm_integrations',
           provider: 'aap-api-cloud',
           context: {},
