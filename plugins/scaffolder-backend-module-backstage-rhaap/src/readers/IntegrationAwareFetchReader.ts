@@ -88,30 +88,12 @@ export function buildAllowedHostsFromIntegrations(
     // Don't add GitLab hosts - they're handled by GitlabUrlReader
   }
 
-  // For Bitbucket, the main host is handled by BitbucketUrlReader
-  for (const bb of integrations.bitbucket.list()) {
-    const host = bb.config.host;
-    logger.debug(
-      `[IntegrationAwareFetchReader] Found Bitbucket integration for ${host} (handled by BitbucketUrlReader)`,
-    );
-    // Don't add Bitbucket hosts - they're handled by BitbucketUrlReader
-  }
-
-  // For Azure DevOps, the main host is handled by AzureUrlReader
-  for (const azure of integrations.azure.list()) {
-    const host = azure.config.host;
-    logger.debug(
-      `[IntegrationAwareFetchReader] Found Azure DevOps integration for ${host} (handled by AzureUrlReader)`,
-    );
-    // Don't add Azure hosts - they're handled by AzureUrlReader
-  }
-
   return allowedHosts;
 }
 
 /**
  * A UrlReaderService that allows fetching from any host configured
- * in SCM integrations (GitHub, GitLab, Bitbucket, Azure DevOps).
+ * in SCM integrations (GitHub, GitLab).
  *
  * This reader acts as a fallback for URLs that aren't handled by the
  * built-in integration-specific readers (GithubUrlReader, GitlabUrlReader, etc.)

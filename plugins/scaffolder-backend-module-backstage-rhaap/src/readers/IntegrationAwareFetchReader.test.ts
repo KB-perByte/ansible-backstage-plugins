@@ -75,40 +75,6 @@ describe('IntegrationAwareFetchReader', () => {
       expect(allowedHosts.has('gitlab.example.net')).toBe(false);
     });
 
-    it('should NOT include Bitbucket hosts (handled by BitbucketUrlReader)', () => {
-      const config = new ConfigReader({
-        integrations: {
-          bitbucket: [
-            { host: 'bitbucket.org', token: 'token1' },
-            {
-              host: 'bitbucket.example.net',
-              apiBaseUrl: 'https://bitbucket.example.net/rest/api/1.0',
-              token: 'token2',
-            },
-          ],
-        },
-      });
-
-      const allowedHosts = buildAllowedHostsFromIntegrations(config, logger);
-
-      // Bitbucket hosts should NOT be included - they're handled by BitbucketUrlReader
-      expect(allowedHosts.has('bitbucket.org')).toBe(false);
-      expect(allowedHosts.has('bitbucket.example.net')).toBe(false);
-    });
-
-    it('should NOT include Azure DevOps hosts (handled by AzureUrlReader)', () => {
-      const config = new ConfigReader({
-        integrations: {
-          azure: [{ host: 'dev.azure.com', token: 'token1' }],
-        },
-      });
-
-      const allowedHosts = buildAllowedHostsFromIntegrations(config, logger);
-
-      // Azure hosts should NOT be included - they're handled by AzureUrlReader
-      expect(allowedHosts.has('dev.azure.com')).toBe(false);
-    });
-
     it('should only include raw.githubusercontent.com when github.com is configured', () => {
       const config = new ConfigReader({
         integrations: {

@@ -55,7 +55,7 @@ backend:
     allow:
       # ============================================================================
       # DYNAMIC SCM READING (provided by IntegrationAwareFetchReader):
-      # 
+      #
       # Hosts from 'integrations.github' and 'integrations.gitlab' are automatically
       # allowed by the IntegrationAwareFetchReader module. You don't need to manually
       # add GitHub Enterprise or self-hosted GitLab hosts here.
@@ -71,6 +71,7 @@ backend:
       #
       # Only add hosts here that are NOT configured as integrations:
       # ============================================================================
+      - host: raw.githubusercontent.com
       - host: localhost
   request:
     bodyParsing:
