@@ -38,8 +38,14 @@ import { AAPEntityProvider } from './providers/AAPEntityProvider';
 import { AAPJobTemplateProvider } from './providers/AAPJobTemplateProvider';
 import { EEEntityProvider } from './providers/EEEntityProvider';
 import { PAHCollectionProvider } from './providers/PAHCollectionProvider';
+import {
+  LoggerService,
+  HttpAuthService,
+  UserInfoService,
+  AuthService,
+} from '@backstage/backend-plugin-api';
+import { CatalogClient } from '@backstage/catalog-client';
 import type { AnsibleGitContentsProvider } from './providers/AnsibleGitContentsProvider';
-import { LoggerService } from '@backstage/backend-plugin-api';
 import { ConfigReader } from '@backstage/config';
 
 function createMockGitContentsProvider(
@@ -75,6 +81,10 @@ describe('createRouter', () => {
   let mockJobTemplateProvider: jest.Mocked<AAPJobTemplateProvider>;
   let mockEEEntityProvider: jest.Mocked<EEEntityProvider>;
   let mockPAHCollectionProvider: jest.Mocked<PAHCollectionProvider>;
+  let mockHttpAuth: jest.Mocked<HttpAuthService>;
+  let mockUserInfo: jest.Mocked<UserInfoService>;
+  let mockAuth: jest.Mocked<AuthService>;
+  let mockCatalogClient: jest.Mocked<CatalogClient>;
 
   const mockConfig = new ConfigReader({
     integrations: {
@@ -127,6 +137,41 @@ describe('createRouter', () => {
       getSourceId: jest.fn().mockReturnValue('test:pah:validated'),
       isEnabled: jest.fn().mockReturnValue(true),
     } as unknown as jest.Mocked<PAHCollectionProvider>;
+    mockHttpAuth = {
+      credentials: jest.fn().mockResolvedValue({}),
+      issueUserCookie: jest.fn(),
+    } as unknown as jest.Mocked<HttpAuthService>;
+
+    mockUserInfo = {
+      getUserInfo: jest.fn().mockResolvedValue({
+        userEntityRef: 'user:default/test-user',
+        ownershipEntityRefs: ['user:default/test-user'],
+      }),
+    } as unknown as jest.Mocked<UserInfoService>;
+
+    mockAuth = {
+      getPluginRequestToken: jest
+        .fn()
+        .mockResolvedValue({ token: 'mock-token' }),
+      getOwnServiceCredentials: jest.fn(),
+      isPrincipal: jest
+        .fn()
+        .mockImplementation((_: unknown, type: string) => type === 'user'),
+      getNoneCredentials: jest.fn(),
+      authenticate: jest.fn(),
+      getLimitedUserToken: jest.fn(),
+    } as unknown as jest.Mocked<AuthService>;
+
+    mockCatalogClient = {
+      getEntityByRef: jest.fn().mockResolvedValue({
+        apiVersion: 'backstage.io/v1alpha1',
+        kind: 'User',
+        metadata: {
+          name: 'test-user',
+          annotations: { 'aap.platform/is_superuser': 'true' },
+        },
+      }),
+    } as unknown as jest.Mocked<CatalogClient>;
 
     const router = await createRouter({
       logger: mockLogger,
@@ -135,6 +180,11 @@ describe('createRouter', () => {
       jobTemplateProvider: mockJobTemplateProvider,
       eeEntityProvider: mockEEEntityProvider,
       pahCollectionProviders: [mockPAHCollectionProvider],
+      httpAuth: mockHttpAuth,
+      userInfo: mockUserInfo,
+      auth: mockAuth,
+      catalogClient: mockCatalogClient,
+      ansibleGitContentsProviders: [],
     });
 
     app = express().use(router);
@@ -268,6 +318,11 @@ describe('createRouter', () => {
           jobTemplateProvider: {} as any,
           eeEntityProvider: mockEEEntityProvider,
           pahCollectionProviders: [mockPAHCollectionProvider],
+          httpAuth: mockHttpAuth,
+          userInfo: mockUserInfo,
+          auth: mockAuth,
+          catalogClient: mockCatalogClient,
+          ansibleGitContentsProviders: [],
         }),
       );
 
@@ -300,6 +355,11 @@ describe('createRouter', () => {
           jobTemplateProvider: {} as any,
           eeEntityProvider: mockEEEntityProvider,
           pahCollectionProviders: [mockPAHCollectionProvider],
+          httpAuth: mockHttpAuth,
+          userInfo: mockUserInfo,
+          auth: mockAuth,
+          catalogClient: mockCatalogClient,
+          ansibleGitContentsProviders: [],
         }),
       );
 
@@ -330,6 +390,11 @@ describe('createRouter', () => {
           jobTemplateProvider: {} as any,
           eeEntityProvider: mockEEEntityProvider,
           pahCollectionProviders: [mockPAHCollectionProvider],
+          httpAuth: mockHttpAuth,
+          userInfo: mockUserInfo,
+          auth: mockAuth,
+          catalogClient: mockCatalogClient,
+          ansibleGitContentsProviders: [],
         }),
       );
 
@@ -360,6 +425,11 @@ describe('createRouter', () => {
           jobTemplateProvider: {} as any,
           eeEntityProvider: mockEEEntityProvider,
           pahCollectionProviders: [mockPAHCollectionProvider],
+          httpAuth: mockHttpAuth,
+          userInfo: mockUserInfo,
+          auth: mockAuth,
+          catalogClient: mockCatalogClient,
+          ansibleGitContentsProviders: [],
         }),
       );
 
@@ -393,6 +463,11 @@ describe('createRouter', () => {
           jobTemplateProvider: {} as any,
           eeEntityProvider: mockEEEntityProvider,
           pahCollectionProviders: [mockPAHCollectionProvider],
+          httpAuth: mockHttpAuth,
+          userInfo: mockUserInfo,
+          auth: mockAuth,
+          catalogClient: mockCatalogClient,
+          ansibleGitContentsProviders: [],
         }),
       );
 
@@ -427,6 +502,11 @@ describe('createRouter', () => {
           jobTemplateProvider: {} as any,
           eeEntityProvider: mockEEEntityProvider,
           pahCollectionProviders: [mockPAHCollectionProvider],
+          httpAuth: mockHttpAuth,
+          userInfo: mockUserInfo,
+          auth: mockAuth,
+          catalogClient: mockCatalogClient,
+          ansibleGitContentsProviders: [],
         }),
       );
 
@@ -461,6 +541,11 @@ describe('createRouter', () => {
           jobTemplateProvider: {} as any,
           eeEntityProvider: mockEEEntityProvider,
           pahCollectionProviders: [mockPAHCollectionProvider],
+          httpAuth: mockHttpAuth,
+          userInfo: mockUserInfo,
+          auth: mockAuth,
+          catalogClient: mockCatalogClient,
+          ansibleGitContentsProviders: [],
         }),
       );
 
@@ -491,6 +576,11 @@ describe('createRouter', () => {
           jobTemplateProvider: {} as any,
           eeEntityProvider: mockEEEntityProvider,
           pahCollectionProviders: [mockPAHCollectionProvider],
+          httpAuth: mockHttpAuth,
+          userInfo: mockUserInfo,
+          auth: mockAuth,
+          catalogClient: mockCatalogClient,
+          ansibleGitContentsProviders: [],
         }),
       );
 
@@ -523,6 +613,11 @@ describe('createRouter', () => {
           jobTemplateProvider: {} as any,
           eeEntityProvider: mockEEEntityProvider,
           pahCollectionProviders: [mockPAHCollectionProvider],
+          httpAuth: mockHttpAuth,
+          userInfo: mockUserInfo,
+          auth: mockAuth,
+          catalogClient: mockCatalogClient,
+          ansibleGitContentsProviders: [],
         }),
       );
 
@@ -553,6 +648,11 @@ describe('createRouter', () => {
           jobTemplateProvider: {} as any,
           eeEntityProvider: mockEEEntityProvider,
           pahCollectionProviders: [mockPAHCollectionProvider],
+          httpAuth: mockHttpAuth,
+          userInfo: mockUserInfo,
+          auth: mockAuth,
+          catalogClient: mockCatalogClient,
+          ansibleGitContentsProviders: [],
         }),
       );
 
@@ -608,6 +708,11 @@ describe('createRouter', () => {
           jobTemplateProvider: {} as any,
           eeEntityProvider: mockEEEntityProvider,
           pahCollectionProviders: [mockPAHCollectionProvider],
+          httpAuth: mockHttpAuth,
+          userInfo: mockUserInfo,
+          auth: mockAuth,
+          catalogClient: mockCatalogClient,
+          ansibleGitContentsProviders: [],
         }),
       );
 
@@ -638,6 +743,11 @@ describe('createRouter', () => {
           jobTemplateProvider: {} as any,
           eeEntityProvider: mockEEEntityProvider,
           pahCollectionProviders: [mockPAHCollectionProvider],
+          httpAuth: mockHttpAuth,
+          userInfo: mockUserInfo,
+          auth: mockAuth,
+          catalogClient: mockCatalogClient,
+          ansibleGitContentsProviders: [],
         }),
       );
 
@@ -674,6 +784,11 @@ describe('createRouter', () => {
           jobTemplateProvider: {} as any,
           eeEntityProvider: mockEEEntityProvider,
           pahCollectionProviders: [mockPAHCollectionProvider],
+          httpAuth: mockHttpAuth,
+          userInfo: mockUserInfo,
+          auth: mockAuth,
+          catalogClient: mockCatalogClient,
+          ansibleGitContentsProviders: [],
         }),
       );
 
@@ -718,6 +833,11 @@ describe('createRouter', () => {
           jobTemplateProvider: {} as any,
           eeEntityProvider: mockEEEntityProvider,
           pahCollectionProviders: [mockPAHCollectionProvider],
+          httpAuth: mockHttpAuth,
+          userInfo: mockUserInfo,
+          auth: mockAuth,
+          catalogClient: mockCatalogClient,
+          ansibleGitContentsProviders: [],
         }),
       );
 
@@ -773,6 +893,10 @@ describe('createRouter', () => {
         jobTemplateProvider: mockJobTemplateProvider,
         eeEntityProvider: mockEEEntityProvider,
         pahCollectionProviders: [],
+        httpAuth: mockHttpAuth,
+        userInfo: mockUserInfo,
+        auth: mockAuth,
+        catalogClient: mockCatalogClient,
       });
       const appWithoutToken = express().use(routerWithoutToken);
 
@@ -962,6 +1086,10 @@ describe('createRouter', () => {
         jobTemplateProvider: mockJobTemplateProvider,
         eeEntityProvider: mockEEEntityProvider,
         pahCollectionProviders: [],
+        httpAuth: mockHttpAuth,
+        userInfo: mockUserInfo,
+        auth: mockAuth,
+        catalogClient: mockCatalogClient,
       });
 
       const appWithSkipTls = express().use(routerWithSkipTls);
@@ -1030,6 +1158,10 @@ describe('createRouter', () => {
         jobTemplateProvider: mockJobTemplateProvider,
         eeEntityProvider: mockEEEntityProvider,
         pahCollectionProviders: [],
+        httpAuth: mockHttpAuth,
+        userInfo: mockUserInfo,
+        auth: mockAuth,
+        catalogClient: mockCatalogClient,
       });
 
       const appWithApiBase = express().use(routerWithApiBase);
@@ -1275,6 +1407,24 @@ describe('createRouter', () => {
         content: null,
       });
     });
+
+    it('should handle sync status when thrown value is not an Error (stringifies in response)', async () => {
+      mockAAPEntityProvider.getLastSyncTime.mockImplementation(() => {
+        throw new Error('plain string error');
+      });
+      mockJobTemplateProvider.getLastSyncTime.mockReturnValue(null);
+
+      const response = await request(app).get(
+        '/ansible/sync/status?aap_entities=true',
+      );
+
+      expect(response.status).toBe(500);
+      expect(response.body.error).toContain('plain string error');
+      expect(response.body.aap).toEqual({
+        orgsUsersTeams: null,
+        jobTemplates: null,
+      });
+    });
   });
 
   describe('GET /ansible/sync/status with ansible_contents', () => {
@@ -1293,6 +1443,10 @@ describe('createRouter', () => {
           jobTemplateProvider: mockJobTemplateProvider,
           eeEntityProvider: mockEEEntityProvider,
           pahCollectionProviders: [],
+          httpAuth: mockHttpAuth,
+          userInfo: mockUserInfo,
+          auth: mockAuth,
+          catalogClient: mockCatalogClient,
           ansibleGitContentsProviders: [mockGitProvider],
         }),
       );
@@ -1329,6 +1483,10 @@ describe('createRouter', () => {
           jobTemplateProvider: mockJobTemplateProvider,
           eeEntityProvider: mockEEEntityProvider,
           pahCollectionProviders: [],
+          httpAuth: mockHttpAuth,
+          userInfo: mockUserInfo,
+          auth: mockAuth,
+          catalogClient: mockCatalogClient,
           ansibleGitContentsProviders: [mockGitProvider],
         }),
       );
@@ -1352,6 +1510,10 @@ describe('createRouter', () => {
       jobTemplateProvider: mockJobTemplateProvider,
       eeEntityProvider: mockEEEntityProvider,
       pahCollectionProviders: [],
+      httpAuth: mockHttpAuth,
+      userInfo: mockUserInfo,
+      auth: mockAuth,
+      catalogClient: mockCatalogClient,
       ansibleGitContentsProviders: providers,
     });
     return express().use(express.json()).use(router);
@@ -1542,6 +1704,11 @@ describe('createRouter', () => {
         jobTemplateProvider: mockJobTemplateProvider,
         eeEntityProvider: mockEEEntityProvider,
         pahCollectionProviders: [],
+        httpAuth: mockHttpAuth,
+        userInfo: mockUserInfo,
+        auth: mockAuth,
+        catalogClient: mockCatalogClient,
+        ansibleGitContentsProviders: [],
       });
       const testApp = express().use(router);
 
@@ -1573,6 +1740,11 @@ describe('createRouter', () => {
         jobTemplateProvider: mockJobTemplateProvider,
         eeEntityProvider: mockEEEntityProvider,
         pahCollectionProviders: [],
+        httpAuth: mockHttpAuth,
+        userInfo: mockUserInfo,
+        auth: mockAuth,
+        catalogClient: mockCatalogClient,
+        ansibleGitContentsProviders: [],
       });
       const testApp = express().use(router);
 
@@ -1585,6 +1757,67 @@ describe('createRouter', () => {
       expect(mockLogger.warn).toHaveBeenCalledWith(
         'Failed to fetch README: Connection refused',
       );
+    });
+
+    it('should set content-type application/yaml for .yaml file', async () => {
+      const response = await request(app).get(
+        '/git_file_content?scmProvider=github&host=github.com&owner=myorg&repo=myrepo&filePath=ansible.yaml&ref=main',
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers['content-type']).toMatch(/application\/yaml/);
+    });
+
+    it('should set content-type application/yaml for .yml file', async () => {
+      const response = await request(app).get(
+        '/git_file_content?scmProvider=github&host=github.com&owner=myorg&repo=myrepo&filePath=config.yml&ref=main',
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers['content-type']).toMatch(/application\/yaml/);
+    });
+
+    it('should set content-type application/json for .json file', async () => {
+      const { ScmClientFactory } = require('@ansible/backstage-rhaap-common');
+      ScmClientFactory.mockImplementationOnce(() => ({
+        createClient: jest.fn().mockResolvedValue({
+          getFileContent: jest.fn().mockResolvedValue('{"key": "value"}'),
+        }),
+      }));
+      const router = await createRouter({
+        logger: mockLogger,
+        config: mockConfig,
+        aapEntityProvider: mockAAPEntityProvider,
+        jobTemplateProvider: mockJobTemplateProvider,
+        eeEntityProvider: mockEEEntityProvider,
+        pahCollectionProviders: [],
+        httpAuth: mockHttpAuth,
+        userInfo: mockUserInfo,
+        auth: mockAuth,
+        catalogClient: mockCatalogClient,
+        ansibleGitContentsProviders: [],
+      });
+      const testApp = express().use(router);
+      const response = await request(testApp).get(
+        '/git_file_content?scmProvider=github&host=github.com&owner=myorg&repo=myrepo&filePath=data.json&ref=main',
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers['content-type']).toMatch(/application\/json/);
+      expect(response.text).toBe('{"key": "value"}');
+    });
+
+    it('should set content-type text/plain for .txt file', async () => {
+      const response = await request(app).get(
+        '/git_file_content?scmProvider=github&host=github.com&owner=myorg&repo=myrepo&filePath=notes.txt&ref=main',
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers['content-type']).toMatch(/text\/plain/);
+    });
+
+    it('should set content-type text/plain for unknown or missing extension', async () => {
+      const response = await request(app).get(
+        '/git_file_content?scmProvider=github&host=github.com&owner=myorg&repo=myrepo&filePath=README&ref=main',
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers['content-type']).toMatch(/text\/plain/);
     });
   });
 
@@ -1603,6 +1836,30 @@ describe('createRouter', () => {
 
       expect(response.status).toBe(404);
     });
+
+    it('should work when ansibleGitContentsProviders is omitted (defaults to empty array)', async () => {
+      const opts = {
+        logger: mockLogger,
+        config: mockConfig,
+        aapEntityProvider: mockAAPEntityProvider,
+        jobTemplateProvider: mockJobTemplateProvider,
+        eeEntityProvider: mockEEEntityProvider,
+        pahCollectionProviders: [mockPAHCollectionProvider],
+        httpAuth: mockHttpAuth,
+        userInfo: mockUserInfo,
+        auth: mockAuth,
+        catalogClient: mockCatalogClient,
+        ansibleGitContentsProviders: [] as AnsibleGitContentsProvider[],
+      };
+      const { ansibleGitContentsProviders: _omit, ...rest } = opts;
+      const router = await createRouter(
+        rest as Parameters<typeof createRouter>[0],
+      );
+      const testApp = express().use(router);
+      const response = await request(testApp).get('/health');
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ status: 'ok' });
+    });
   });
 
   describe('Error handling with invalid dependencies', () => {
@@ -1614,6 +1871,11 @@ describe('createRouter', () => {
         jobTemplateProvider: mockJobTemplateProvider,
         eeEntityProvider: mockEEEntityProvider,
         pahCollectionProviders: [mockPAHCollectionProvider],
+        httpAuth: mockHttpAuth,
+        userInfo: mockUserInfo,
+        auth: mockAuth,
+        catalogClient: mockCatalogClient,
+        ansibleGitContentsProviders: [],
       });
 
       const testApp = express().use(routerWithInvalidLogger);
@@ -1631,6 +1893,11 @@ describe('createRouter', () => {
         jobTemplateProvider: mockJobTemplateProvider,
         eeEntityProvider: mockEEEntityProvider,
         pahCollectionProviders: [mockPAHCollectionProvider],
+        httpAuth: mockHttpAuth,
+        userInfo: mockUserInfo,
+        auth: mockAuth,
+        catalogClient: mockCatalogClient,
+        ansibleGitContentsProviders: [],
       });
 
       const testApp = express().use(routerWithInvalidProvider);
@@ -1648,6 +1915,11 @@ describe('createRouter', () => {
         jobTemplateProvider: undefined as any,
         eeEntityProvider: mockEEEntityProvider,
         pahCollectionProviders: [mockPAHCollectionProvider],
+        httpAuth: mockHttpAuth,
+        userInfo: mockUserInfo,
+        auth: mockAuth,
+        catalogClient: mockCatalogClient,
+        ansibleGitContentsProviders: [],
       });
 
       const testApp = express().use(routerWithInvalidProvider);
@@ -1893,6 +2165,11 @@ describe('createRouter', () => {
         jobTemplateProvider: mockJobTemplateProvider,
         eeEntityProvider: mockEEEntityProvider,
         pahCollectionProviders: [],
+        httpAuth: mockHttpAuth,
+        userInfo: mockUserInfo,
+        auth: mockAuth,
+        catalogClient: mockCatalogClient,
+        ansibleGitContentsProviders: [],
       });
       const appWithNoProviders = express().use(routerWithNoProviders);
 
@@ -1920,6 +2197,22 @@ describe('createRouter', () => {
     let mockProvider2: jest.Mocked<PAHCollectionProvider>;
 
     beforeEach(async () => {
+      // Re-apply superuser auth mocks so requireSuperuserMiddleware passes (shared mocks can be affected by test order)
+      mockHttpAuth.credentials.mockResolvedValue({} as any);
+      mockUserInfo.getUserInfo.mockResolvedValue({
+        userEntityRef: 'user:default/test-user',
+        ownershipEntityRefs: ['user:default/test-user'],
+      });
+      mockAuth.getPluginRequestToken.mockResolvedValue({ token: 'mock-token' });
+      mockCatalogClient.getEntityByRef.mockResolvedValue({
+        apiVersion: 'backstage.io/v1alpha1',
+        kind: 'User',
+        metadata: {
+          name: 'test-user',
+          annotations: { 'aap.platform/is_superuser': 'true' },
+        },
+      });
+
       mockProvider1 = {
         run: jest.fn(),
         startSync: jest.fn(),
@@ -1963,6 +2256,11 @@ describe('createRouter', () => {
         jobTemplateProvider: mockJobTemplateProvider,
         eeEntityProvider: mockEEEntityProvider,
         pahCollectionProviders: [mockProvider1, mockProvider2],
+        httpAuth: mockHttpAuth,
+        userInfo: mockUserInfo,
+        auth: mockAuth,
+        catalogClient: mockCatalogClient,
+        ansibleGitContentsProviders: [],
       });
 
       appWithMultipleProviders = express().use(router);

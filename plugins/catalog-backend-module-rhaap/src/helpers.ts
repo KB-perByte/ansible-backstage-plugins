@@ -1,3 +1,11 @@
+import type { Request, Response, RequestHandler } from 'express';
+import type {
+  LoggerService,
+  HttpAuthService,
+  UserInfoService,
+  AuthService,
+} from '@backstage/backend-plugin-api';
+import type { CatalogClient } from '@backstage/catalog-client';
 import type { Config } from '@backstage/config';
 
 import { AnsibleGitContentsProvider } from './providers/AnsibleGitContentsProvider';
@@ -256,4 +264,103 @@ export function getSyncResponseStatusCode(params: {
   if (allStarted) return 202;
   if (allSkipped) return 200;
   return 207; // Mixed results (e.g., some started + some skipped/failed/invalid)
+}
+
+export interface RequireSuperuserDeps {
+  httpAuth: HttpAuthService;
+  userInfo: UserInfoService;
+  auth: AuthService;
+  catalogClient: CatalogClient;
+  logger: LoggerService;
+  /**
+   * When set, only service principals with this subject are allowed as external access.
+   * Typically populated from backend.auth.externalAccess[].options.subject in app-config.
+   * If empty/undefined, any service principal is allowed.
+   */
+  allowedExternalAccessSubjects?: string[];
+}
+
+/**
+ * Returns a function that checks the request has a catalog user with
+ * `aap.platform/is_superuser` annotation. If not, sends 403 and returns false.
+ */
+export function checkRequireSuperuser(
+  deps: RequireSuperuserDeps,
+): (req: Request, res: Response) => Promise<boolean> {
+  const {
+    httpAuth,
+    userInfo,
+    auth,
+    catalogClient,
+    logger,
+    allowedExternalAccessSubjects,
+  } = deps;
+  return async (req: Request, res: Response): Promise<boolean> => {
+    try {
+      const credentials = await httpAuth.credentials(req as any, {
+        allow: ['service', 'user'],
+      });
+      // Service principal = external access token (from backend.auth.externalAccess in app-config).
+      if (auth.isPrincipal(credentials, 'service')) {
+        const subject = credentials.principal.subject;
+        const allowed =
+          !allowedExternalAccessSubjects?.length ||
+          allowedExternalAccessSubjects.includes(subject);
+        if (allowed) {
+          logger.info(
+            `Allowing sync request: external access (service principal, subject=${subject})`,
+          );
+          return true;
+        }
+        logger.warn(
+          `Rejecting sync request: service principal subject '${subject}' not in allowedExternalAccessSubjects`,
+        );
+        res.status(403).json({
+          error:
+            'Forbidden: external access subject not allowed for this endpoint',
+        });
+        return false;
+      }
+      // User principal: require superuser in catalog.
+      const { userEntityRef } = await userInfo.getUserInfo(credentials);
+      const { token } = await auth.getPluginRequestToken({
+        onBehalfOf: credentials,
+        targetPluginId: 'catalog',
+      });
+      const userEntity = await catalogClient.getEntityByRef(userEntityRef, {
+        token,
+      });
+      const isSuperuser =
+        userEntity?.metadata?.annotations?.['aap.platform/is_superuser'] ===
+        'true';
+      if (!isSuperuser) {
+        res.status(403).json({ error: 'Forbidden: superuser access required' });
+        return false;
+      }
+      return true;
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logger.error(`Superuser check failed: ${errorMessage}`);
+      res.status(500).json({
+        error: `Authorization failed: ${errorMessage}`,
+      });
+      return false;
+    }
+  };
+}
+
+/**
+ * Returns an Express middleware that requires superuser. Use as a route
+ * decorator: router.get('/path', requireSuperuserMiddleware, handler).
+ * On success calls next(); on failure sends 403/500 and does not call next().
+ */
+export function createRequireSuperuserMiddleware(
+  deps: RequireSuperuserDeps,
+): RequestHandler {
+  const requireSuperuser = checkRequireSuperuser(deps);
+  return async (req: Request, res: Response, next: (err?: unknown) => void) => {
+    const allowed = await requireSuperuser(req, res);
+    if (allowed) next();
+  };
 }
