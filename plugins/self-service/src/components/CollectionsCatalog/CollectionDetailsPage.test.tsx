@@ -8,6 +8,14 @@ import { permissionApiRef } from '@backstage/plugin-permission-react';
 import { Entity } from '@backstage/catalog-model';
 import { CollectionDetailsPage } from './CollectionDetailsPage';
 
+jest.mock('../../hooks', () => ({
+  useIsSuperuser: () => ({
+    isSuperuser: true,
+    loading: false,
+    error: null,
+  }),
+}));
+
 const theme = createTheme();
 
 const mockEntity: Entity = {
@@ -57,6 +65,10 @@ const renderWithRouter = (collectionName: string) => {
             <Route
               path="/collections/:collectionName"
               element={<CollectionDetailsPage />}
+            />
+            <Route
+              path="/self-service/collections"
+              element={<div>Collections Page</div>}
             />
           </Routes>
         </MemoryRouter>
@@ -405,7 +417,7 @@ describe('CollectionDetailsPage', () => {
           }),
         });
       }
-      if (url.includes('git_readme_content')) {
+      if (url.includes('git_file_content')) {
         return Promise.resolve({
           ok: true,
           text: () => Promise.resolve('# Backend readme content'),
@@ -421,7 +433,7 @@ describe('CollectionDetailsPage', () => {
     });
     expect(mockFetchApi.fetch).toHaveBeenCalledWith(
       expect.stringMatching(
-        /git_readme_content\?.*filePath=README\.md.*ref=main/,
+        /git_file_content\?.*filePath=README\.md.*ref=main/,
       ),
     );
   });
@@ -459,7 +471,7 @@ describe('CollectionDetailsPage', () => {
           }),
         });
       }
-      if (url.includes('git_readme_content')) {
+      if (url.includes('git_file_content')) {
         return Promise.resolve({
           ok: true,
           text: () => Promise.resolve('Nested path readme'),
@@ -508,7 +520,7 @@ describe('CollectionDetailsPage', () => {
           json: async () => ({ content: { providers: [] } }),
         });
       }
-      if (url.includes('git_readme_content')) {
+      if (url.includes('git_file_content')) {
         return Promise.resolve({ ok: false });
       }
       return Promise.resolve({ ok: false });
@@ -521,7 +533,7 @@ describe('CollectionDetailsPage', () => {
     });
     await waitFor(() => {
       expect(mockFetchApi.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('git_readme_content'),
+        expect.stringContaining('git_file_content'),
       );
     });
   });
@@ -556,7 +568,7 @@ describe('CollectionDetailsPage', () => {
           json: async () => ({ content: { providers: [] } }),
         });
       }
-      if (url.includes('git_readme_content')) {
+      if (url.includes('git_file_content')) {
         return Promise.reject(new Error('Backend error'));
       }
       return Promise.resolve({ ok: false });
@@ -569,7 +581,7 @@ describe('CollectionDetailsPage', () => {
     });
     await waitFor(() => {
       expect(mockFetchApi.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('git_readme_content'),
+        expect.stringContaining('git_file_content'),
       );
     });
   });
@@ -739,7 +751,7 @@ describe('CollectionDetailsPage', () => {
       expect(screen.getByText('Direct fetch readme')).toBeInTheDocument();
     });
     expect(mockFetchApi.fetch).not.toHaveBeenCalledWith(
-      expect.stringContaining('git_readme_content'),
+      expect.stringContaining('git_file_content'),
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
       'https://raw.githubusercontent.com/o/r/main/README.md',
@@ -774,7 +786,7 @@ describe('CollectionDetailsPage', () => {
       expect(screen.getByText('About')).toBeInTheDocument();
     });
     expect(mockFetchApi.fetch).not.toHaveBeenCalledWith(
-      expect.stringContaining('git_readme_content'),
+      expect.stringContaining('git_file_content'),
     );
   });
 

@@ -54,6 +54,22 @@ export class GitlabClient extends BaseScmClient {
     return response.json() as Promise<T>;
   }
 
+  async getPipelines(
+    projectPath: string,
+    options: { perPage?: number } = {},
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; status: number; data: unknown }> {
+    const perPage = Math.min(options.perPage ?? 15, 100);
+    const endpoint = `/projects/${encodeURIComponent(projectPath)}/pipelines?per_page=${perPage}&order_by=updated_at&sort=desc`;
+    const url = `${this.apiUrl}${endpoint}`;
+    const opts = { ...this.getFetchOptions(), signal };
+    const response = this.checkSSL
+      ? await fetch(url, opts)
+      : await undiciFetch(url, opts as Parameters<typeof undiciFetch>[1]);
+    const data = await response.json().catch(() => ({}));
+    return { ok: response.ok, status: response.status, data };
+  }
+
   private async fetchRawFile(
     endpoint: string,
     signal?: AbortSignal,
@@ -314,6 +330,28 @@ export class GitlabClient extends BaseScmClient {
       `/projects/${encodedPath}/repository/files/${encodedFilePath}/raw?ref=${encodedRef}`,
       signal,
     );
+  }
+
+  async repositoryExists(
+    owner: string,
+    repo: string,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    const projectPath = encodeURIComponent(`${owner}/${repo}`);
+    const url = `${this.apiUrl}/projects/${projectPath}`;
+    const opts = { ...this.getFetchOptions(), signal, method: 'HEAD' as const };
+
+    try {
+      const response = this.checkSSL
+        ? await fetch(url, opts)
+        : await undiciFetch(url, opts as Parameters<typeof undiciFetch>[1]);
+      return response.ok;
+    } catch (error) {
+      this.logger.debug(
+        `[GitlabClient] Repository ${owner}/${repo} check failed: ${error}`,
+      );
+      return false;
+    }
   }
 
   buildUrl(options: UrlBuildOptions): string {

@@ -16,11 +16,17 @@
 import express from 'express';
 import Router from 'express-promise-router';
 import type { Config } from '@backstage/config';
+import type { JsonValue } from '@backstage/types';
 
 import { AAPJobTemplateProvider } from './providers/AAPJobTemplateProvider';
 import { AAPEntityProvider } from './providers/AAPEntityProvider';
-import { LoggerService } from '@backstage/backend-plugin-api';
-import { EEEntityProvider } from './providers/EEEntityProvider';
+import {
+  LoggerService,
+  HttpAuthService,
+  UserInfoService,
+  AuthService,
+} from '@backstage/backend-plugin-api';
+import { CatalogClient } from '@backstage/catalog-client';
 import { PAHCollectionProvider } from './providers/PAHCollectionProvider';
 import { AnsibleGitContentsProvider } from './providers/AnsibleGitContentsProvider';
 import {
@@ -34,8 +40,19 @@ import {
   getSyncResponseStatusCode,
   buildInvalidRepositoryResults,
   resolveProvidersToRun,
+  createRequireSuperuserMiddleware,
+  getGitLabIntegrationForHost,
+  getSkipTlsVerifyHosts,
+  isSafeHostname,
 } from './helpers';
-import { ScmClientFactory } from '@ansible/backstage-rhaap-common';
+import { EEEntityProvider } from './providers/EEEntityProvider';
+import {
+  GitlabClient,
+  ScmClientFactory,
+} from '@ansible/backstage-rhaap-common';
+
+// Express Request is not assignable to Backstage's auth request type; cast is required.
+type HttpAuthRequest = Parameters<HttpAuthService['credentials']>[0];
 
 export async function createRouter(options: {
   logger: LoggerService;
@@ -44,7 +61,12 @@ export async function createRouter(options: {
   jobTemplateProvider: AAPJobTemplateProvider;
   eeEntityProvider: EEEntityProvider;
   pahCollectionProviders: PAHCollectionProvider[];
+  httpAuth: HttpAuthService;
+  userInfo: UserInfoService;
+  auth: AuthService;
+  catalogClient: CatalogClient;
   ansibleGitContentsProviders?: AnsibleGitContentsProvider[];
+  allowedExternalAccessSubjects?: string[];
 }): Promise<express.Router> {
   const {
     logger,
@@ -53,7 +75,12 @@ export async function createRouter(options: {
     jobTemplateProvider,
     eeEntityProvider,
     pahCollectionProviders,
+    httpAuth,
+    userInfo,
+    auth,
+    catalogClient,
     ansibleGitContentsProviders = [],
+    allowedExternalAccessSubjects,
   } = options;
   const router = Router();
   const scmClientFactory = new ScmClientFactory({ rootConfig: config, logger });
@@ -72,6 +99,15 @@ export async function createRouter(options: {
     _GIT_CONTENTS_PROVIDERS.set(provider.getSourceId(), provider);
   }
 
+  const requireSuperuserMiddleware = createRequireSuperuserMiddleware({
+    httpAuth,
+    userInfo,
+    auth,
+    catalogClient,
+    logger,
+    allowedExternalAccessSubjects,
+  });
+
   router.get('/health', (_, response) => {
     logger.info('PONG!');
     response.json({ status: 'ok' });
@@ -89,72 +125,59 @@ export async function createRouter(options: {
     response.status(200).json(res);
   });
 
-  router.get('/ansible/sync/status', async (request, response) => {
-    logger.info('Getting sync status');
-    const aapEntities = request.query.aap_entities === 'true';
-    const ansibleContents = request.query.ansible_contents === 'true';
-    const noQueryParams =
-      request.query.aap_entities === undefined &&
-      request.query.ansible_contents === undefined;
+  router.get(
+    '/ansible/sync/status',
+    requireSuperuserMiddleware,
+    async (request, response) => {
+      logger.info('Getting sync status');
+      const aapEntities = request.query.aap_entities === 'true';
+      const ansibleContents = request.query.ansible_contents === 'true';
+      const noQueryParams =
+        request.query.aap_entities === undefined &&
+        request.query.ansible_contents === undefined;
 
-    try {
-      const result: {
-        aap?: {
-          orgsUsersTeams: { lastSync: string | null };
-          jobTemplates: { lastSync: string | null };
-        };
-        content?: {
-          syncInProgress: boolean;
-          providers: Array<{
-            sourceId: string;
-            repository?: string;
-            scmProvider?: string;
-            hostName?: string;
-            organization?: string;
-            providerName: string;
-            enabled: boolean;
+      try {
+        const result: {
+          aap?: {
+            orgsUsersTeams: { lastSync: string | null };
+            jobTemplates: { lastSync: string | null };
+          };
+          content?: {
             syncInProgress: boolean;
-            lastSyncTime: string | null;
-            lastFailedSyncTime: string | null;
-            lastSyncStatus: 'success' | 'failure' | null;
-            collectionsFound: number;
-            collectionsDelta: number;
-          }>;
-        };
-      } = {};
+            providers: Array<{
+              sourceId: string;
+              repository?: string;
+              scmProvider?: string;
+              hostName?: string;
+              organization?: string;
+              providerName: string;
+              enabled: boolean;
+              syncInProgress: boolean;
+              lastSyncTime: string | null;
+              lastFailedSyncTime: string | null;
+              lastSyncStatus: 'success' | 'failure' | null;
+              collectionsFound: number;
+              collectionsDelta: number;
+            }>;
+          };
+        } = {};
 
-      // Include aap block if aap_entities=true or no query params
-      if (aapEntities || noQueryParams) {
-        result.aap = {
-          orgsUsersTeams: {
-            lastSync: aapEntityProvider.getLastSyncTime(),
-          },
-          jobTemplates: {
-            lastSync: jobTemplateProvider.getLastSyncTime(),
-          },
-        };
-      }
+        // Include aap block if aap_entities=true or no query params
+        if (aapEntities || noQueryParams) {
+          result.aap = {
+            orgsUsersTeams: {
+              lastSync: aapEntityProvider.getLastSyncTime(),
+            },
+            jobTemplates: {
+              lastSync: jobTemplateProvider.getLastSyncTime(),
+            },
+          };
+        }
 
-      if (ansibleContents || noQueryParams) {
-        const pahProviders = pahCollectionProviders.map(provider => ({
-          sourceId: provider.getSourceId(),
-          repository: provider.getPahRepositoryName(),
-          providerName: provider.getProviderName(),
-          enabled: provider.isEnabled(),
-          syncInProgress: provider.getIsSyncing(),
-          lastSyncTime: provider.getLastSyncTime(),
-          lastFailedSyncTime: provider.getLastFailedSyncTime(),
-          lastSyncStatus: provider.getLastSyncStatus(),
-          collectionsFound: provider.getCurrentCollectionsCount(),
-          collectionsDelta: provider.getCollectionsDelta(),
-        }));
-        const scmProviders = ansibleGitContentsProviders.map(provider => {
-          const providerInfo = parseSourceId(provider.getSourceId());
-          return {
+        if (ansibleContents || noQueryParams) {
+          const pahProviders = pahCollectionProviders.map(provider => ({
             sourceId: provider.getSourceId(),
-            scmProvider: providerInfo.scmProvider,
-            hostName: providerInfo.hostName,
-            organization: providerInfo.organization,
+            repository: provider.getPahRepositoryName(),
             providerName: provider.getProviderName(),
             enabled: provider.isEnabled(),
             syncInProgress: provider.getIsSyncing(),
@@ -163,33 +186,50 @@ export async function createRouter(options: {
             lastSyncStatus: provider.getLastSyncStatus(),
             collectionsFound: provider.getCurrentCollectionsCount(),
             collectionsDelta: provider.getCollectionsDelta(),
+          }));
+          const scmProviders = ansibleGitContentsProviders.map(provider => {
+            const providerInfo = parseSourceId(provider.getSourceId());
+            return {
+              sourceId: provider.getSourceId(),
+              scmProvider: providerInfo.scmProvider,
+              hostName: providerInfo.hostName,
+              organization: providerInfo.organization,
+              providerName: provider.getProviderName(),
+              enabled: provider.isEnabled(),
+              syncInProgress: provider.getIsSyncing(),
+              lastSyncTime: provider.getLastSyncTime(),
+              lastFailedSyncTime: provider.getLastFailedSyncTime(),
+              lastSyncStatus: provider.getLastSyncStatus(),
+              collectionsFound: provider.getCurrentCollectionsCount(),
+              collectionsDelta: provider.getCollectionsDelta(),
+            };
+          });
+          const providers = [...pahProviders, ...scmProviders];
+          const anySyncInProgress = providers.some(p => p.syncInProgress);
+
+          result.content = {
+            syncInProgress: anySyncInProgress,
+            providers,
           };
+        }
+
+        response.status(200).json(result);
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        logger.error(`Failed to get sync status: ${errorMessage}`);
+
+        response.status(500).json({
+          error: `Failed to get sync status: ${errorMessage}`,
+          aap: {
+            orgsUsersTeams: null,
+            jobTemplates: null,
+          },
+          content: null,
         });
-        const providers = [...pahProviders, ...scmProviders];
-        const anySyncInProgress = providers.some(p => p.syncInProgress);
-
-        result.content = {
-          syncInProgress: anySyncInProgress,
-          providers,
-        };
       }
-
-      response.status(200).json(result);
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      logger.error(`Failed to get sync status: ${errorMessage}`);
-
-      response.status(500).json({
-        error: `Failed to get sync status: ${errorMessage}`,
-        aap: {
-          orgsUsersTeams: null,
-          jobTemplates: null,
-        },
-        content: null,
-      });
-    }
-  });
+    },
+  );
 
   router.post('/aap/create_user', express.json(), async (request, response) => {
     const { username, userID } = request.body;
@@ -217,6 +257,11 @@ export async function createRouter(options: {
   });
 
   router.post('/register_ee', express.json(), async (request, response) => {
+    // Only allow backend service calls (for example, scaffolder to catalog), not user requests
+    await httpAuth.credentials(request as unknown as HttpAuthRequest, {
+      allow: ['service'],
+    });
+
     const { entity } = request.body;
 
     if (!entity) {
@@ -240,6 +285,7 @@ export async function createRouter(options: {
   router.post(
     '/ansible/sync/from-aap/content',
     express.json(),
+    requireSuperuserMiddleware,
     async (request, response) => {
       // Extract repository names from request body
       // Expected format: { "filters": [{ "repository_name": "rh-certified" }, { "repository_name": "validated" }] }
@@ -365,6 +411,7 @@ export async function createRouter(options: {
   router.post(
     '/ansible/sync/from-scm/content',
     express.json(),
+    requireSuperuserMiddleware,
     async (request, response) => {
       const { filters = [] } = request.body as { filters?: SyncFilter[] };
       const invalidFilters: Array<{ filter: SyncFilter; error: string }> = [];
@@ -480,7 +527,7 @@ export async function createRouter(options: {
     return Array.from(matchedIds).map(id => _GIT_CONTENTS_PROVIDERS.get(id)!);
   }
 
-  router.get('/git_readme_content', async (request, response) => {
+  router.get('/git_file_content', async (request, response) => {
     const { scmProvider, host, owner, repo, filePath, ref } = request.query;
 
     const required = [
@@ -535,7 +582,15 @@ export async function createRouter(options: {
         path,
       );
 
-      response.type('text/markdown');
+      const ext = path.split('.').pop()?.toLowerCase();
+      const contentTypeMap: Record<string, string> = {
+        md: 'text/markdown',
+        yaml: 'application/yaml',
+        yml: 'application/yaml',
+        json: 'application/json',
+        txt: 'text/plain',
+      };
+      response.type(contentTypeMap[ext ?? ''] ?? 'text/plain');
       response.send(content);
     } catch (error) {
       const errorMessage =
@@ -546,6 +601,85 @@ export async function createRouter(options: {
       response.status(status).json({
         error: `Failed to fetch README: ${errorMessage}`,
       });
+    }
+  });
+
+  // Proxy GitLab pipelines API to avoid CORS when fetching from the frontend
+  router.get('/ansible/gitlab/pipelines', async (request, response) => {
+    logger.info('[GitLab pipelines proxy] Request reached handler', {
+      path: request.path,
+      query: request.query,
+      hasAuth: !!request.headers['private-token'],
+      hasBearer: !!request.headers.authorization,
+    });
+    const projectPath = request.query.projectPath as string | undefined;
+    const host = (request.query.host as string) || 'gitlab.com';
+    const tokenFromRequest =
+      (request.headers['private-token'] as string) ||
+      (request.headers.authorization?.replace(/^Bearer\s+/i, '') as string);
+    const { token: tokenFromConfig, apiBaseUrl: apiBaseFromConfig } =
+      getGitLabIntegrationForHost(config, host);
+    const token = tokenFromConfig || tokenFromRequest;
+    logger.info('[GitLab pipelines proxy] Token resolution', {
+      projectPath,
+      host,
+      tokenFromConfig: !!tokenFromConfig,
+      tokenFromRequest: !!tokenFromRequest,
+      hasToken: !!token,
+    });
+    if (!projectPath || !token) {
+      response.status(400).json({
+        error:
+          'Missing projectPath or authorization (PRIVATE-TOKEN, Authorization header, or integrations.gitlab token in config)',
+      });
+      return;
+    }
+    if (!isSafeHostname(host)) {
+      response.status(400).json({
+        error: 'Invalid host: must be a valid hostname (e.g. gitlab.com)',
+      });
+      return;
+    }
+    const hostLower = host.toLowerCase();
+    const skipTlsVerify = getSkipTlsVerifyHosts(config)
+      .filter(isSafeHostname)
+      .some(h => h.toLowerCase() === hostLower);
+    const client = new GitlabClient({
+      config: {
+        scmProvider: 'gitlab',
+        host,
+        organization: '',
+        token,
+        apiBaseUrl: apiBaseFromConfig,
+        checkSSL: !skipTlsVerify,
+      },
+      logger,
+    });
+    const perPage = Math.min(Number(request.query.per_page) || 15, 100);
+    try {
+      const { ok, status, data } = await client.getPipelines(projectPath, {
+        perPage,
+      });
+      logger.info('[GitLab pipelines proxy] GitLab API response', {
+        status,
+        projectPath,
+        host,
+      });
+      if (!ok) {
+        logger.warn('[GitLab pipelines proxy] GitLab API returned non-OK', {
+          status,
+          projectPath,
+          host,
+          body: data as JsonValue,
+        });
+      }
+      response.status(status).json(data as JsonValue);
+    } catch (err) {
+      logger.warn(
+        'GitLab pipelines proxy failed',
+        err instanceof Error ? err : undefined,
+      );
+      response.status(502).json({ error: 'Failed to fetch GitLab pipelines' });
     }
   });
 

@@ -1,29 +1,39 @@
-import { Box, Button, Link, Typography } from '@material-ui/core';
+import { Box, Button, Link, Tooltip, Typography } from '@material-ui/core';
 import SearchIcon from '@material-ui/icons/Search';
 import SyncIcon from '@material-ui/icons/Sync';
 import SettingsIcon from '@material-ui/icons/Settings';
 import OpenInNewIcon from '@material-ui/icons/OpenInNew';
-import { usePermission } from '@backstage/plugin-permission-react';
-import { catalogEntityCreatePermission } from '@backstage/plugin-catalog-common/alpha';
 
-import { useCollectionsStyles } from './styles';
+import { useSharedStyles } from './styles';
 import { CONFIGURATION_DOCS_URL } from './constants';
-
-export interface EmptyStateProps {
-  onSyncClick?: () => void;
-  hasConfiguredSources?: boolean | null;
-}
+import { EmptyStateProps } from './types';
+import { useIsSuperuser } from '../../hooks';
 
 export const EmptyState = ({
   onSyncClick,
   hasConfiguredSources,
+  repositoryFilter,
+  syncDisabled = false,
+  syncDisabledReason,
 }: EmptyStateProps) => {
-  const classes = useCollectionsStyles();
-  const { allowed } = usePermission({
-    permission: catalogEntityCreatePermission,
-  });
+  const classes = useSharedStyles();
+  const { isSuperuser: allowed } = useIsSuperuser();
 
-  // No content sources configured
+  if (repositoryFilter) {
+    return (
+      <Box className={classes.emptyState}>
+        <SearchIcon className={classes.emptyStateIcon} />
+        <Typography variant="h5" className={classes.emptyStateTitle}>
+          No collections discovered from this repository
+        </Typography>
+        <Typography variant="body1" className={classes.emptyStateDescription}>
+          Collections from this repository will appear here after the catalog
+          sync discovers them.
+        </Typography>
+      </Box>
+    );
+  }
+
   if (hasConfiguredSources === false) {
     return (
       <Box className={classes.emptyState}>
@@ -51,7 +61,6 @@ export const EmptyState = ({
     );
   }
 
-  // Sources configured but no collections found
   return (
     <Box className={classes.emptyState}>
       <SearchIcon className={classes.emptyStateIcon} />
@@ -64,15 +73,22 @@ export const EmptyState = ({
           : 'No collections are available in the catalog. Contact your organization administrator to sync the content sources.'}
       </Typography>
       {allowed && onSyncClick && (
-        <Button
-          variant="outlined"
-          color="primary"
-          startIcon={<SyncIcon />}
-          onClick={onSyncClick}
-          className={classes.syncButton}
+        <Tooltip
+          title={syncDisabled && syncDisabledReason ? syncDisabledReason : ''}
         >
-          Sync Now
-        </Button>
+          <span>
+            <Button
+              variant="outlined"
+              color="primary"
+              startIcon={<SyncIcon />}
+              onClick={onSyncClick}
+              disabled={syncDisabled}
+              className={classes.syncButton}
+            >
+              Sync Now
+            </Button>
+          </span>
+        </Tooltip>
       )}
     </Box>
   );

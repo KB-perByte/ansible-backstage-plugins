@@ -35,3 +35,36 @@ export const LocationListener = selfServicePlugin.provide(
     },
   }),
 );
+
+/**
+ * EE Page component for mounting at /self-service/ee
+ * Contains its own routing for the EE section.
+ *
+ * @public
+ */
+export const EEPage = selfServicePlugin.provide(
+  createRoutableExtension({
+    name: 'EEPage',
+    component: () =>
+      import('./components/ExecutionEnvironments').then((m: any) => m.EETabs),
+    mountPoint: rootRouteRef,
+  }),
+);
+
+/**
+ * A sidebar item that checks EE Builder permissions before rendering.
+ * Returns null if the user doesn't have permission, hiding the sidebar entry.
+ *
+ * @public
+ */
+export const EEBuilderSidebarItem = selfServicePlugin.provide(
+  createComponentExtension({
+    name: 'EEBuilderSidebarItem',
+    component: {
+      lazy: () =>
+        import('./components/EEBuilderSidebarItem').then(
+          m => m.EEBuilderSidebarItem,
+        ),
+    },
+  }),
+);
