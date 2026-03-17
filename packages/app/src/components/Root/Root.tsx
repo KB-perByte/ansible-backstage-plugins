@@ -4,6 +4,7 @@ import HomeIcon from '@material-ui/icons/Home';
 import ExtensionIcon from '@material-ui/icons/Extension';
 import LibraryBooks from '@material-ui/icons/LibraryBooks';
 import CreateComponentIcon from '@material-ui/icons/AddCircleOutline';
+import CategoryIcon from '@material-ui/icons/Category';
 import LogoFull from './LogoFull';
 import LogoIcon from './LogoIcon';
 import {
@@ -24,6 +25,7 @@ import {
   Link,
 } from '@backstage/core-components';
 import MenuIcon from '@material-ui/icons/Menu';
+import CodeIcon from '@material-ui/icons/Code';
 import SearchIcon from '@material-ui/icons/Search';
 import { MyGroupsSidebarItem } from '@backstage/plugin-org';
 import GroupIcon from '@material-ui/icons/People';
@@ -95,6 +97,16 @@ export const Root = ({ children }: PropsWithChildren<{}>) => (
             icon={MenuIcon}
             to="/self-service/ee"
             text="Execution Environments"
+          />
+          <SidebarItem
+            icon={CategoryIcon}
+            to="/self-service/collections"
+            text="Collections"
+          />
+          <SidebarItem
+            icon={CodeIcon}
+            to="/self-service/repositories/catalog"
+            text="Git Repositories"
           />
         </SidebarScrollWrapper>
       </SidebarGroup>

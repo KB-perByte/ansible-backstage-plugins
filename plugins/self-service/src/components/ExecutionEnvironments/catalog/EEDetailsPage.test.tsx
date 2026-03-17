@@ -7,7 +7,11 @@ import {
 } from '@testing-library/react';
 import { TestApiProvider } from '@backstage/test-utils';
 import { catalogApiRef } from '@backstage/plugin-catalog-react';
-import { discoveryApiRef, identityApiRef } from '@backstage/core-plugin-api';
+import {
+  discoveryApiRef,
+  identityApiRef,
+  fetchApiRef,
+} from '@backstage/core-plugin-api';
 import { ThemeProvider, createMuiTheme } from '@material-ui/core/styles';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -22,8 +26,6 @@ jest.mock('@backstage/plugin-catalog-react', () => {
     FavoriteEntity: ({ entity }: any) => (
       <span data-testid="favorite-entity">fav:{entity?.metadata?.name}</span>
     ),
-    InspectEntityDialog: ({ open }: any) =>
-      open ? <div data-testid="inspect-dialog">inspect</div> : null,
     UnregisterEntityDialog: ({ open }: any) =>
       open ? <div data-testid="unregister-dialog">unregister</div> : null,
     catalogApiRef: actual.catalogApiRef,
@@ -101,14 +103,59 @@ const entityNoReadme = {
 };
 delete (entityNoReadme.spec as any).readme;
 
+// GitHub URL without tree path
+const entityGitHubNoTree = {
+  ...entityFull,
+  metadata: {
+    ...entityFull.metadata,
+    annotations: {
+      'backstage.io/source-location':
+        'url:https://github.com/owner/repo/blob/main/ee-dir',
+      'ansible.io/scm-provider': 'github',
+    },
+  },
+  spec: { ...entityFull.spec },
+};
+delete (entityGitHubNoTree.spec as any).readme;
+
+// GitLab URL with tree path
+const entityGitLabWithTree = {
+  ...entityFull,
+  metadata: {
+    ...entityFull.metadata,
+    annotations: {
+      'backstage.io/source-location':
+        'url:https://gitlab.com/owner/repo/-/tree/develop/subdir/ee',
+      'ansible.io/scm-provider': 'gitlab',
+    },
+  },
+  spec: { ...entityFull.spec },
+};
+delete (entityGitLabWithTree.spec as any).readme;
+
+// GitLab URL without tree path
+const entityGitLabNoTree = {
+  ...entityFull,
+  metadata: {
+    ...entityFull.metadata,
+    annotations: {
+      'backstage.io/source-location': 'url:https://gitlab.com/owner/repo',
+      'ansible.io/scm-provider': 'gitlab',
+    },
+  },
+  spec: { ...entityFull.spec },
+};
+delete (entityGitLabNoTree.spec as any).readme;
+
 const theme = createMuiTheme();
 
-// ----------------- Helper render (provides catalog, discovery, identity APIs) -----------------
+// ----------------- Helper render (provides catalog, discovery, identity, fetch APIs) -----------------
 const renderWithCatalogApi = (
   getEntitiesImpl: any,
   options?: {
     discoveryImpl?: any;
     identityImpl?: any;
+    fetchImpl?: any;
     getEntityByRefImpl?: any;
   },
 ) => {
@@ -130,6 +177,12 @@ const renderWithCatalogApi = (
   const mockIdentityApi = options?.identityImpl ?? {
     getCredentials: async () => ({ token: 'tok' }),
   };
+  const mockFetchApi = options?.fetchImpl ?? {
+    fetch: jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => '# Default README from fetch',
+    }),
+  };
 
   return render(
     <MemoryRouter initialEntries={['/']}>
@@ -138,6 +191,7 @@ const renderWithCatalogApi = (
           [catalogApiRef, mockCatalogApi],
           [discoveryApiRef, mockDiscoveryApi],
           [identityApiRef, mockIdentityApi],
+          [fetchApiRef, mockFetchApi],
         ]}
       >
         <ThemeProvider theme={theme}>
@@ -152,56 +206,11 @@ const renderWithCatalogApi = (
 describe('EEDetailsPage', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-
-    // Ensure navigator.clipboard.writeText exists so tests can inspect/call it.
-    // Make it configurable so afterEach can delete it.
-    if (!(navigator as any).clipboard) {
-      Object.defineProperty(navigator, 'clipboard', {
-        configurable: true,
-        writable: true,
-        value: {
-          writeText: jest.fn().mockResolvedValue(undefined),
-        },
-      });
-    } else {
-      // If it already exists, but not a jest mock, ensure writeText is mockable
-      const cl = (navigator as any).clipboard;
-      if (!cl.writeText || typeof cl.writeText !== 'function') {
-        Object.defineProperty(navigator, 'clipboard', {
-          configurable: true,
-          writable: true,
-          value: {
-            writeText: jest.fn().mockResolvedValue(undefined),
-          },
-        });
-      } else if (!(cl.writeText as any)._isMockFunction) {
-        // wrap existing function with a mock so we can assert it was called
-        cl.writeText = jest.fn().mockImplementation(cl.writeText);
-      }
-    }
   });
 
   afterEach(() => {
     jest.restoreAllMocks();
     cleanup();
-
-    // Remove fake clipboard to avoid leaking to other test suites
-    try {
-      // only delete if it was defined configurable above
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-      // @ts-ignore
-      if (
-        (navigator as any).clipboard &&
-        (navigator as any).clipboard._isMockFunction
-      ) {
-        // unlikely, but safe-guard
-      }
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-      // @ts-ignore
-      delete (navigator as any).clipboard;
-    } catch (e) {
-      // ignore if deletion not permitted
-    }
   });
 
   test('renders entity details (title, description, owner, tags, readme with OWNER title)', async () => {
@@ -269,44 +278,70 @@ describe('EEDetailsPage', () => {
     expect(getEntities).toHaveBeenCalled();
   });
 
-  test('clicking VIEW TECHDOCS calls window.open with computed docs url', async () => {
+  test('clicking Read more (long description) expands description inline and shows Read less', async () => {
+    const longDescription =
+      'Long description over 150 characters. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam.';
+    const entityLongDesc = {
+      ...entityNoDownload,
+      metadata: {
+        ...entityNoDownload.metadata,
+        description: longDescription,
+      },
+    };
+    renderWithCatalogApi(() => Promise.resolve({ items: [entityLongDesc] }));
+
+    await screen.findByTestId('favorite-entity');
+
+    const readMore = screen.queryByText(/Read more/i);
+    expect(readMore).toBeInTheDocument();
+    expect(screen.queryByText(longDescription)).toBeNull();
+
+    fireEvent.click(readMore!);
+
+    expect(screen.getByText(longDescription)).toBeInTheDocument();
+    expect(screen.getByText(/Read less/i)).toBeInTheDocument();
+  });
+
+  test('Resources card renders documentation links', async () => {
+    renderWithCatalogApi(() => Promise.resolve({ items: [entityNoDownload] }));
+
+    await screen.findByTestId('favorite-entity');
+
+    expect(
+      screen.getByText(
+        /Create execution environment definitions in self-service automation portal/i,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  test('Edit definition action opens definition file URL', async () => {
     renderWithCatalogApi(() => Promise.resolve({ items: [entityNoDownload] }));
 
     await screen.findByTestId('favorite-entity');
 
     const openSpy = jest.spyOn(window, 'open').mockImplementation(() => null);
 
-    const techdocsBox = screen.queryByText(/VIEW\s*TECHDOCS/i);
-    expect(techdocsBox).toBeInTheDocument();
+    const actionsButton = screen.getByRole('button', { name: /Actions/i });
+    fireEvent.click(actionsButton);
+    const editDefinitionItem = await screen.findByText(/Edit definition/i);
+    fireEvent.click(editDefinitionItem);
 
-    fireEvent.click(techdocsBox!);
-
-    expect(openSpy).toHaveBeenCalledWith(
-      `/docs/${entityNoDownload.metadata.namespace}/${entityNoDownload.kind}/${entityNoDownload.metadata.name}`,
-      '_blank',
-    );
-
+    expect(openSpy).toHaveBeenCalledWith('http://edit/ee-one.yaml', '_blank');
     openSpy.mockRestore();
   });
 
-  test('clicking VIEW SOURCE opens source location cleaned', async () => {
+  test('source link points to source location and opens in new tab', async () => {
     renderWithCatalogApi(() => Promise.resolve({ items: [entityNoDownload] }));
 
     await screen.findByTestId('favorite-entity');
 
-    const openSpy = jest.spyOn(window, 'open').mockImplementation(() => null);
-
-    const viewSourceBox = screen.queryByText(/VIEW\s*SOURCE/i);
-    expect(viewSourceBox).toBeInTheDocument();
-
-    fireEvent.click(viewSourceBox!);
-
-    expect(openSpy).toHaveBeenCalledWith(
+    // Main layout uses "Source" section with link labeled by SCM (e.g. GitHub)
+    const sourceLink = screen.getByRole('link', { name: /github/i });
+    expect(sourceLink).toHaveAttribute(
+      'href',
       'https://github.com/owner/repo/tree/branch/ee1/',
-      '_blank',
     );
-
-    openSpy.mockRestore();
+    expect(sourceLink).toHaveAttribute('target', '_blank');
   });
 
   test('Edit action opens edit URL from annotation (if present)', async () => {
@@ -316,14 +351,45 @@ describe('EEDetailsPage', () => {
     const favorite = await screen.findByTestId('favorite-entity');
     expect(favorite).toBeInTheDocument();
 
+    const editLinks = screen.queryAllByRole('link', {
+      name: /edit definition/i,
+    });
     const editLink =
-      screen.queryByRole('link', { name: /edit/i }) ||
-      screen.queryByText(/Edit/i);
+      editLinks.length > 0
+        ? editLinks[0]
+        : screen.queryByText(/Edit definition/i);
     if (editLink) {
       fireEvent.click(editLink);
       // link has target _blank in the markup — ensure href contains the edit url
-      //   expect((editLink as HTMLAnchorElement).href).toContain('http://edit/ee-one');
+      // expect((editLink as HTMLAnchorElement).href).toContain('http://edit/ee-one');
     }
+  });
+
+  test('AboutCard shows source link from source-location when edit-url is missing', async () => {
+    const entitySourceLocationOnly = {
+      ...entityNoDownload,
+      metadata: {
+        ...entityNoDownload.metadata,
+        annotations: {
+          'backstage.io/source-location':
+            'url:https://git.example.com/org/repo',
+        },
+      },
+    };
+    renderWithCatalogApi(() =>
+      Promise.resolve({ items: [entitySourceLocationOnly] }),
+    );
+
+    await screen.findByTestId('favorite-entity');
+
+    // Main layout shows Source section with link (no separate EDIT URL block)
+    const sourceLink = screen.getByRole('link', {
+      name: /source/i,
+    });
+    expect(sourceLink).toHaveAttribute(
+      'href',
+      'https://git.example.com/org/repo',
+    );
   });
 
   test('Download EE files triggers archive creation & download flow (create/revoke called)', async () => {
@@ -399,6 +465,26 @@ describe('EEDetailsPage', () => {
     // createObjectURLSpy.mockRestore();
   });
 
+  test('download with missing definition/readme/ansible_cfg returns early without creating blob', async () => {
+    const createObjectURLSpy = jest.spyOn(URL, 'createObjectURL');
+
+    renderWithCatalogApi(() => Promise.resolve({ items: [entityNoReadme] }));
+
+    await screen.findByTestId('favorite-entity');
+
+    const downloadLink = screen.queryByText(/Download EE files/i);
+    expect(downloadLink).toBeInTheDocument();
+
+    fireEvent.click(downloadLink!);
+
+    // downloadEntityAsTarArchive returns false when required spec is missing; no blob is created
+    await waitFor(() => {
+      expect(createObjectURLSpy).not.toHaveBeenCalled();
+    });
+
+    createObjectURLSpy.mockRestore();
+  });
+
   test('when annotation disables download, Download EE files not shown', async () => {
     const entityNoDownloadAnnotation = {
       ...entityFull,
@@ -423,13 +509,16 @@ describe('EEDetailsPage', () => {
   });
 
   test('renders default readme when spec.readme is absent and fetch succeeds', async () => {
-    // mock fetch for default readme
-    const fetchSpy = jest.spyOn(global, 'fetch' as any).mockResolvedValue({
-      ok: true,
-      text: async () => 'Fetched README content',
-    });
+    const mockFetchApi = {
+      fetch: jest.fn().mockResolvedValue({
+        ok: true,
+        text: async () => 'Fetched README content',
+      }),
+    };
 
-    renderWithCatalogApi(() => Promise.resolve({ items: [entityNoReadme] }));
+    renderWithCatalogApi(() => Promise.resolve({ items: [entityNoReadme] }), {
+      fetchImpl: mockFetchApi,
+    });
 
     // wait for MarkdownContent to contain fetched text
     await waitFor(
@@ -439,25 +528,94 @@ describe('EEDetailsPage', () => {
         ),
       { timeout: 2000 },
     );
-
-    fetchSpy.mockRestore();
   });
 
   test('default readme fetch failure does not crash and markdown-content may be empty', async () => {
-    const fetchSpy = jest.spyOn(global, 'fetch' as any).mockResolvedValue({
-      ok: false,
-      status: 404,
-      text: async () => '',
-    });
+    const mockFetchApi = {
+      fetch: jest.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+        text: async () => '',
+      }),
+    };
 
-    renderWithCatalogApi(() => Promise.resolve({ items: [entityNoReadme] }));
+    renderWithCatalogApi(() => Promise.resolve({ items: [entityNoReadme] }), {
+      fetchImpl: mockFetchApi,
+    });
 
     await screen.findByTestId('favorite-entity');
 
     // fetch failed; component should not crash. MarkdownContent is present but may be empty.
     expect(screen.getByTestId('markdown-content')).toBeInTheDocument();
+  });
 
-    fetchSpy.mockRestore();
+  test('GitHub URL without tree path fetches README from correct path', async () => {
+    const mockFetchApi = {
+      fetch: jest.fn().mockResolvedValue({
+        ok: true,
+        text: async () => 'GitHub no-tree README',
+      }),
+    };
+
+    renderWithCatalogApi(
+      () => Promise.resolve({ items: [entityGitHubNoTree] }),
+      { fetchImpl: mockFetchApi },
+    );
+
+    await waitFor(() => expect(mockFetchApi.fetch).toHaveBeenCalled());
+
+    const fetchUrl = mockFetchApi.fetch.mock.calls[0][0];
+    expect(fetchUrl).toContain('scmProvider=github');
+    expect(fetchUrl).toContain('owner=owner');
+    expect(fetchUrl).toContain('repo=repo');
+    expect(fetchUrl).toContain('filePath=blob%2Fmain%2Fee-dir%2FREADME.md');
+    expect(fetchUrl).toContain('ref=main');
+  });
+
+  test('GitLab URL with tree path fetches README with correct ref and subdir', async () => {
+    const mockFetchApi = {
+      fetch: jest.fn().mockResolvedValue({
+        ok: true,
+        text: async () => 'GitLab with-tree README',
+      }),
+    };
+
+    renderWithCatalogApi(
+      () => Promise.resolve({ items: [entityGitLabWithTree] }),
+      { fetchImpl: mockFetchApi },
+    );
+
+    await waitFor(() => expect(mockFetchApi.fetch).toHaveBeenCalled());
+
+    const fetchUrl = mockFetchApi.fetch.mock.calls[0][0];
+    expect(fetchUrl).toContain('scmProvider=gitlab');
+    expect(fetchUrl).toContain('owner=owner');
+    expect(fetchUrl).toContain('repo=repo');
+    expect(fetchUrl).toContain('ref=develop');
+    expect(fetchUrl).toContain('filePath=subdir%2Fee%2FREADME.md');
+  });
+
+  test('GitLab URL without tree path fetches README from last path segment', async () => {
+    const mockFetchApi = {
+      fetch: jest.fn().mockResolvedValue({
+        ok: true,
+        text: async () => 'GitLab no-tree README',
+      }),
+    };
+
+    renderWithCatalogApi(
+      () => Promise.resolve({ items: [entityGitLabNoTree] }),
+      { fetchImpl: mockFetchApi },
+    );
+
+    await waitFor(() => expect(mockFetchApi.fetch).toHaveBeenCalled());
+
+    const fetchUrl = mockFetchApi.fetch.mock.calls[0][0];
+    expect(fetchUrl).toContain('scmProvider=gitlab');
+    expect(fetchUrl).toContain('owner=owner');
+    expect(fetchUrl).toContain('repo=repo');
+    expect(fetchUrl).toContain('filePath=repo%2FREADME.md');
+    expect(fetchUrl).toContain('ref=main');
   });
 
   test('does not crash if catalogApi.getEntities rejects', async () => {
@@ -497,47 +655,27 @@ describe('EEDetailsPage', () => {
     });
   });
 
-  test('menu actions: copy url, unregister and inspect open respective flows', async () => {
-    renderWithCatalogApi(() => Promise.resolve({ items: [entityFull] }));
+  test('Actions menu: Delete opens unregister flow; Build, Edit definition present when not download-experience', async () => {
+    renderWithCatalogApi(() => Promise.resolve({ items: [entityNoDownload] }));
 
     await screen.findByTestId('favorite-entity');
 
-    // Use the mocked clipboard from beforeEach
-    const writeTextMock = (navigator.clipboard as any).writeText as jest.Mock;
-    // ensure it's a mock (should be from beforeEach)
-    expect(typeof writeTextMock).toBe('function');
+    const actionsButton = screen.getByRole('button', { name: /Actions/i });
+    fireEvent.click(actionsButton);
 
-    // Find the menu button: choose a header icon button that does not contain favorite-entity
-    const buttons = screen.getAllByRole('button');
-    const menuButton = buttons.find(
-      b =>
-        !b.querySelector('[data-testid="favorite-entity"]') &&
-        b.querySelector('svg'),
-    );
-    expect(menuButton).toBeTruthy();
-    fireEvent.click(menuButton!);
+    expect(
+      screen.getByRole('menuitem', { name: /Build/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Edit definition/i)).toBeInTheDocument();
+    const deleteItem = await screen.findByText(/Delete/i);
+    expect(deleteItem).toBeInTheDocument();
 
-    // Click "Copy entity URL"
-    const copyItem = await screen.findByText(/Copy entity URL/i);
-    fireEvent.click(copyItem);
+    expect(screen.queryByText(/Copy entity URL/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Inspect entity/i)).not.toBeInTheDocument();
 
-    // Clipboard was used
-    await waitFor(() => expect(writeTextMock).toHaveBeenCalled());
-
-    // Open menu again and click Unregister entity -> should show unregister-dialog
-    fireEvent.click(menuButton!);
-    const unregisterItem = await screen.findByText(/Unregister entity/i);
-    fireEvent.click(unregisterItem);
+    fireEvent.click(deleteItem);
     await waitFor(() =>
       expect(screen.getByTestId('unregister-dialog')).toBeInTheDocument(),
-    );
-
-    // Open menu again and click Inspect entity -> should show inspect-dialog
-    fireEvent.click(menuButton!);
-    const inspectItem = await screen.findByText(/Inspect entity/i);
-    fireEvent.click(inspectItem);
-    await waitFor(() =>
-      expect(screen.getByTestId('inspect-dialog')).toBeInTheDocument(),
     );
   });
 });

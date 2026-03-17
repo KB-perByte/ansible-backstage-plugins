@@ -29,9 +29,14 @@ const mockRouteRefFn = jest.fn((params: any) => {
   return `/templates/${params.namespace}/${params.templateName}`;
 });
 
+const mockRootLinkFn = jest.fn(() => '/self-service');
+
 jest.mock('@backstage/core-plugin-api', () => ({
   ...jest.requireActual('@backstage/core-plugin-api'),
-  useRouteRef: () => mockRouteRefFn,
+  useRouteRef: (ref: { id?: string }) => {
+    if (ref?.id === 'self-service') return mockRootLinkFn;
+    return mockRouteRefFn;
+  },
 }));
 
 // Mock the entire scaffolder-react module
@@ -1024,15 +1029,8 @@ describe('RunTask', () => {
     }, 15000);
   });
 
-  describe('Back button functionality', () => {
-    beforeEach(() => {
-      mockNavigate.mockClear();
-      mockRouteRefFn.mockClear();
-    });
-
-    it('should navigate back to template page when back button is clicked', async () => {
-      const user = userEvent.setup();
-
+  describe('Template entity fetch', () => {
+    it('should call getEntityByRef when task has templateInfo.entityRef', async () => {
       const useTaskEventStreamMock =
         require('@backstage/plugin-scaffolder-react').useTaskEventStream;
 
@@ -1045,9 +1043,56 @@ describe('RunTask', () => {
             templateInfo: {
               entity: {
                 metadata: {
-                  name: 'test-template',
-                  namespace: 'default',
                   title: 'Test Template',
+                },
+              },
+              entityRef: 'template:default/my-template',
+            },
+            steps: [{ id: 'step1', name: 'Step 1' }],
+          },
+        },
+        completed: true,
+        loading: false,
+        error: undefined,
+        output: { links: [] },
+        steps: { step1: { status: 'completed' } },
+        stepLogs: {},
+      }));
+
+      mockCatalogApi.getEntityByRef.mockResolvedValue({
+        spec: { type: 'service' },
+        metadata: {},
+      });
+
+      await render(<RunTask />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('back-button')).toBeInTheDocument();
+      });
+
+      expect(mockCatalogApi.getEntityByRef).toHaveBeenCalledWith(
+        'template:default/my-template',
+      );
+
+      useTaskEventStreamMock.mockImplementation(originalImplementation);
+    }, 15000);
+
+    it('should not call getEntityByRef in case templateInfo.entityRef is absent', async () => {
+      const useTaskEventStreamMock =
+        require('@backstage/plugin-scaffolder-react').useTaskEventStream;
+
+      const originalImplementation =
+        useTaskEventStreamMock.getMockImplementation();
+
+      useTaskEventStreamMock.mockImplementation(() => ({
+        task: {
+          spec: {
+            templateInfo: {
+              entity: {
+                metadata: {
+                  title: 'Test Template',
+                  name: 'my-template',
+                  namespace: 'default',
                 },
               },
             },
@@ -1068,16 +1113,196 @@ describe('RunTask', () => {
         expect(screen.getByTestId('back-button')).toBeInTheDocument();
       });
 
+      expect(mockCatalogApi.getEntityByRef).not.toHaveBeenCalled();
+
+      useTaskEventStreamMock.mockImplementation(originalImplementation);
+    }, 15000);
+  });
+
+  describe('Back button functionality', () => {
+    beforeEach(() => {
+      mockNavigate.mockClear();
+      mockRouteRefFn.mockClear();
+      mockRootLinkFn.mockClear();
+    });
+
+    it('should navigate to non EE catalog when back button is clicked for non-EE template', async () => {
+      const user = userEvent.setup();
+
+      const useTaskEventStreamMock =
+        require('@backstage/plugin-scaffolder-react').useTaskEventStream;
+
+      const originalImplementation =
+        useTaskEventStreamMock.getMockImplementation();
+
+      const nonEETemplateEntity = {
+        spec: { type: 'non-execution-environment' },
+        metadata: {
+          name: 'test-template',
+          namespace: 'default',
+          title: 'Test Template',
+        },
+      };
+
+      useTaskEventStreamMock.mockImplementation(() => ({
+        task: {
+          spec: {
+            templateInfo: {
+              entity: {
+                metadata: {
+                  name: 'test-template',
+                  namespace: 'default',
+                  title: 'Test Template',
+                },
+              },
+              entityRef: 'template:default/test-template',
+            },
+            steps: [{ id: 'step1', name: 'Step 1' }],
+          },
+        },
+        completed: true,
+        loading: false,
+        error: undefined,
+        output: { links: [] },
+        steps: { step1: { status: 'completed' } },
+        stepLogs: {},
+      }));
+
+      mockCatalogApi.getEntityByRef.mockResolvedValue(nonEETemplateEntity);
+
+      await render(<RunTask />);
+
+      await waitFor(() => {
+        expect(mockCatalogApi.getEntityByRef).toHaveBeenCalledWith(
+          'template:default/test-template',
+        );
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('back-button')).toBeInTheDocument();
+      });
+
       await user.click(screen.getByTestId('back-button'));
 
       await waitFor(() => {
-        expect(mockRouteRefFn).toHaveBeenCalledWith({
+        expect(mockNavigate).toHaveBeenCalledWith('/self-service/catalog');
+      });
+
+      useTaskEventStreamMock.mockImplementation(originalImplementation);
+    }, 15000);
+
+    it('should navigate to EE catalog when back button is clicked for EE template', async () => {
+      const user = userEvent.setup();
+
+      const useTaskEventStreamMock =
+        require('@backstage/plugin-scaffolder-react').useTaskEventStream;
+
+      const originalImplementation =
+        useTaskEventStreamMock.getMockImplementation();
+
+      const eeTemplateEntity = {
+        spec: { type: 'execution-environment' },
+        metadata: {
+          name: 'ee-template',
           namespace: 'default',
-          templateName: 'test-template',
-        });
-        expect(mockNavigate).toHaveBeenCalledWith(
-          '/templates/default/test-template',
+          title: 'EE Template',
+        },
+      };
+
+      useTaskEventStreamMock.mockImplementation(() => ({
+        task: {
+          spec: {
+            templateInfo: {
+              entity: {
+                metadata: {
+                  name: 'ee-template',
+                  namespace: 'default',
+                  title: 'EE Template',
+                },
+              },
+              entityRef: 'template:default/ee-template',
+            },
+            steps: [{ id: 'step1', name: 'Step 1' }],
+          },
+        },
+        completed: true,
+        loading: false,
+        error: undefined,
+        output: { links: [] },
+        steps: { step1: { status: 'completed' } },
+        stepLogs: {},
+      }));
+
+      mockCatalogApi.getEntityByRef.mockResolvedValue(eeTemplateEntity);
+
+      await render(<RunTask />);
+
+      await waitFor(() => {
+        expect(mockCatalogApi.getEntityByRef).toHaveBeenCalledWith(
+          'template:default/ee-template',
         );
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('back-button')).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByTestId('back-button'));
+
+      await waitFor(() => {
+        expect(mockNavigate).toHaveBeenCalledWith('/self-service/ee/create');
+      });
+
+      useTaskEventStreamMock.mockImplementation(originalImplementation);
+    }, 15000);
+
+    it('should navigate back in history when template entity is not loaded', async () => {
+      const user = userEvent.setup();
+
+      const useTaskEventStreamMock =
+        require('@backstage/plugin-scaffolder-react').useTaskEventStream;
+
+      const originalImplementation =
+        useTaskEventStreamMock.getMockImplementation();
+
+      useTaskEventStreamMock.mockImplementation(() => ({
+        task: {
+          spec: {
+            templateInfo: {
+              entity: {
+                metadata: {
+                  name: 'test-template',
+                  namespace: 'default',
+                  title: 'Test Template',
+                },
+              },
+              entityRef: 'template:default/test-template',
+            },
+            steps: [{ id: 'step1', name: 'Step 1' }],
+          },
+        },
+        completed: true,
+        loading: false,
+        error: undefined,
+        output: { links: [] },
+        steps: { step1: { status: 'completed' } },
+        stepLogs: {},
+      }));
+
+      mockCatalogApi.getEntityByRef.mockRejectedValue(
+        new Error('Entity not found'),
+      );
+
+      await render(<RunTask />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('back-button')).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByTestId('back-button'));
+
+      await waitFor(() => {
+        expect(mockNavigate).toHaveBeenCalledWith(-1);
       });
 
       useTaskEventStreamMock.mockImplementation(originalImplementation);

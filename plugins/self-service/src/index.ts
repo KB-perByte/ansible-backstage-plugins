@@ -3,6 +3,7 @@ export * from './plugin';
 export { SignInPage } from './components/SignInPage';
 export { LandingPage } from './components/LandingPage';
 export { TaskList } from './components/TaskList';
+export { EEBuilderSidebarItem } from './components/EEBuilderSidebarItem';
 export { AAPTokenFieldExtension } from './components/Scaffolder/AAPTokenField/extensions';
 export { AAPResourcePickerExtension } from './components/Scaffolder/AAResourcePicker';
 export { SCMResourcePickerExtension } from './components/Scaffolder/SCMResourcePicker';
@@ -13,5 +14,6 @@ export { PackagesPickerFieldExtension } from './components/Scaffolder/PackagesPi
 export { MCPServersPickerFieldExtension } from './components/Scaffolder/MCPServersPicker/extensions';
 export { AdditionalBuildStepsPickerFieldExtension } from './components/Scaffolder/AdditionalBuildStepsPicker/extensions';
 export { EEFileNamePickerFieldExtension } from './components/Scaffolder/EEFileNamePicker/extensions';
+export { EETagsPickerFieldExtension } from './components/Scaffolder/EETagsPicker/extensions';
 
 export * from './apis';

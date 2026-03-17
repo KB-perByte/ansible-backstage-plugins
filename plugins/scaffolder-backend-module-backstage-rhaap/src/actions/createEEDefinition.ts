@@ -95,7 +95,6 @@ interface EEDefinitionInput {
   publishToSCM: boolean;
   baseImage: string;
   collections?: Collection[];
-  popularCollections?: string[];
   collectionsFile?: string;
   pythonRequirements?: string[];
   pythonRequirementsFile?: string;
@@ -314,7 +313,6 @@ export function createEEDefinitionAction(options: {
       const values = input.values as unknown as EEDefinitionInput;
       const baseImage = values.baseImage;
       const collections = values.collections || [];
-      const popularCollections = values.popularCollections || [];
       const collectionsFile = values.collectionsFile || '';
       const pythonRequirements = values.pythonRequirements || [];
       const pythonRequirementsFile = values.pythonRequirementsFile || '';
@@ -397,11 +395,7 @@ export function createEEDefinitionAction(options: {
 
       try {
         // Merge collections from different sources
-        const allCollections = mergeCollections(
-          collections,
-          popularCollections,
-          parsedCollections,
-        );
+        const allCollections = mergeCollections(collections, parsedCollections);
 
         // Merge requirements from different sources
         const allRequirements = mergeRequirements(
@@ -937,28 +931,6 @@ spec:
     - title: Collections
       description: Add collections to be included in your execution environment definition file (optional).
       properties:
-        popularCollections:
-          title: Add Popular Collections
-          type: array
-          items:
-            type: string
-            enum:
-              - 'community.general'
-              - 'ansible.posix'
-              - 'ansible.windows'
-              - 'ansible.utils'
-              - 'amazon.aws'
-              - 'azure.azcollection'
-              - 'google.cloud'
-              - 'amazon.ai'
-              - 'cisco.ios'
-              - 'cisco.nxos'
-              - 'arista.eos'
-              - 'cisco.iosxr'
-          uniqueItems: true
-          ui:widget: checkboxes
-          ui:options:
-            layout: horizontal
         collections:
           title: Ansible Collections
           type: array
@@ -1008,11 +980,13 @@ spec:
                   description: URI of the signature file
           ui:field: CollectionsPicker
         collectionsFile:
-          title: Upload a requirements.yml file
+          title: Add collection requirements
           description: Optionally upload a requirements file with collection details
           type: string
           format: data-url
           ui:field: FileUploadPicker
+          ui:placeholder: Paste the full content of your collection requirements file (e.g., requirements.yml) here. Alternatively, upload the requirements file. Please verify formatting, as no syntax validation is applied.
+          ui:buttonText: Upload YAML file
         specifyRequirements:
           title: Specify additional Python requirements and System packages
           type: boolean
@@ -1040,9 +1014,10 @@ spec:
                 pythonRequirementsFile:
                   type: string
                   format: data-url
-                  title: Pick a file with Python requirements
+                  title: Add Python requirements
                   description: Upload a requirements.txt file with python package details
                   ui:field: FileUploadPicker
+                  ui:placeholder: Paste the full content of your python package requirements file (e.g., requirements.txt) here. Alternatively, upload the requirements file. Please verify formatting, as no syntax validation is applied.
                 systemPackages:
                   title: Additional System Packages
                   type: array
@@ -1059,9 +1034,11 @@ spec:
                 systemPackagesFile:
                   type: string
                   format: data-url
-                  title: Pick a file with system packages
+                  title: Add system packages
                   description: Upload a bindep.txt file with system package details
                   ui:field: FileUploadPicker
+                  ui:placeholder: Paste the full content of your bindep.txt file here. Alternatively, upload TXT file. Please verify formatting, as no syntax validation is applied.
+                  ui:buttonText: Upload TXT file
             - properties:
                 specifyRequirements:
                   const: false
@@ -1164,6 +1141,7 @@ spec:
           items:
             type: string
           ui:
+            field: EETagsPicker
             options:
               addable: true
               orderable: true
@@ -1230,7 +1208,6 @@ spec:
           publishToSCM: \${{ parameters.publishToSCM }}
           baseImage: \${{ parameters.baseImage === 'custom' and parameters.customBaseImage or parameters.baseImage }}
           customBaseImage: \${{ parameters.customBaseImage or '' }}
-          popularCollections: \${{ parameters.popularCollections or [] }}
           collections: \${{ parameters.collections or [] }}
           collectionsFile: \${{ parameters.collectionsFile or [] }}
           pythonRequirements: \${{ parameters.pythonRequirements or [] }}
@@ -1418,7 +1395,6 @@ function generateEECatalogEntity(
 
 function mergeCollections(
   collections: Collection[],
-  popularCollections: string[],
   parsedCollections: Array<Record<string, any>>,
 ): Collection[] {
   const collectionsRequirements: Collection[] = [];
@@ -1426,12 +1402,6 @@ function mergeCollections(
   // Add individual collections
   if (collections) {
     collectionsRequirements.push(...collections);
-  }
-
-  // Add popular collections (convert string names to Collection objects)
-  if (popularCollections) {
-    const popularCollectionObjects = popularCollections.map(name => ({ name }));
-    collectionsRequirements.push(...popularCollectionObjects);
   }
 
   // Add content from uploaded collection requirements file

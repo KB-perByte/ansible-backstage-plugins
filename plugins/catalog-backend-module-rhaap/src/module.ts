@@ -4,6 +4,7 @@ import {
 } from '@backstage/backend-plugin-api';
 
 import { ansibleServiceRef } from '@ansible/backstage-rhaap-common';
+import { ansiblePermissions } from '@ansible/backstage-rhaap-common/permissions';
 import { createRouter } from './router';
 import {
   catalogModelExtensionPoint,
@@ -13,6 +14,9 @@ import { AAPJobTemplateProvider } from './providers/AAPJobTemplateProvider';
 import { AAPEntityProvider } from './providers/AAPEntityProvider';
 import { makeValidator } from '@backstage/catalog-model';
 import { EEEntityProvider } from './providers/EEEntityProvider';
+import { PAHCollectionProvider } from './providers/PAHCollectionProvider';
+import { CatalogClient } from '@backstage/catalog-client';
+import { AnsibleGitContentsProvider } from './providers/AnsibleGitContentsProvider';
 
 export const catalogModuleRhaap = createBackendModule({
   pluginId: 'catalog',
@@ -29,6 +33,10 @@ export const catalogModuleRhaap = createBackendModule({
         httpRouter: coreServices.httpRouter,
         discovery: coreServices.discovery,
         auth: coreServices.auth,
+        permissionsRegistry: coreServices.permissionsRegistry,
+        permissionsApi: coreServices.permissions,
+        httpAuth: coreServices.httpAuth,
+        userInfo: coreServices.userInfo,
       },
       async init({
         logger,
@@ -38,7 +46,13 @@ export const catalogModuleRhaap = createBackendModule({
         httpRouter,
         catalogProcessing,
         catalogModel,
+        permissionsRegistry,
+        httpAuth,
+        userInfo,
+        discovery,
+        auth,
       }) {
+        permissionsRegistry.addPermissions(ansiblePermissions);
         catalogModel.setFieldValidators(
           makeValidator({
             isValidEntityName: (value: string) => {
@@ -68,19 +82,60 @@ export const catalogModuleRhaap = createBackendModule({
             scheduler,
           },
         );
+        const pahCollectionProviders: PAHCollectionProvider[] =
+          PAHCollectionProvider.fromConfig(config, ansibleService, {
+            logger,
+            scheduler,
+          });
+        const ansibleGitContentsProviders =
+          await AnsibleGitContentsProvider.fromConfig(config, {
+            logger,
+            scheduler,
+          });
+        // log providers since there can be multiple providers for collections
+        logger.info(
+          `[catalog-module-rhaap]: Created ${ansibleGitContentsProviders.length} Ansible Git Contents provider(s)`,
+        );
 
         catalogProcessing.addEntityProvider(
           aapEntityProvider,
           jobTemplateProvider,
           eeEntityProvider,
+          ...pahCollectionProviders,
+          ansibleGitContentsProviders,
         );
+
+        const catalogClient = new CatalogClient({ discoveryApi: discovery });
+
+        const externalAccessConfig = config
+          .getOptionalConfig('backend')
+          ?.getOptionalConfig('auth')
+          ?.getOptionalConfigArray('externalAccess');
+        const allowedExternalAccessSubjects: string[] = [];
+        if (externalAccessConfig) {
+          for (const entry of externalAccessConfig) {
+            const subject = entry.getOptionalString('options.subject');
+            if (subject) allowedExternalAccessSubjects.push(subject);
+          }
+        }
 
         httpRouter.use(
           (await createRouter({
             logger,
+            config,
             aapEntityProvider: aapEntityProvider[0],
             jobTemplateProvider: jobTemplateProvider[0],
             eeEntityProvider: eeEntityProvider,
+            pahCollectionProviders: pahCollectionProviders,
+            httpAuth: httpAuth,
+            userInfo: userInfo,
+            auth: auth,
+            catalogClient: catalogClient,
+            ansibleGitContentsProviders,
+            allowedExternalAccessSubjects:
+              allowedExternalAccessSubjects.length > 0
+                ? allowedExternalAccessSubjects
+                : undefined,
           })) as any,
         );
       },

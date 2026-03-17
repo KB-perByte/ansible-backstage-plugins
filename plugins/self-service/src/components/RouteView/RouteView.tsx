@@ -12,6 +12,10 @@ import { TaskList } from '../TaskList';
 import { CatalogItemsDetails } from '../CatalogItemDetails';
 import { EETabs } from '../ExecutionEnvironments';
 import { EEDetailsPage } from '../ExecutionEnvironments/catalog/EEDetailsPage';
+import { CollectionsCatalogPage } from '../CollectionsCatalog';
+import { CollectionDetailsPage } from '../CollectionsCatalog/CollectionDetailsPage';
+import { GitRepositoriesPage } from '../GitRepositories';
+import { RepositoryDetailsPage } from '../GitRepositories/RepositoryDetailsPage';
 
 export const RouteView = () => {
   return (
@@ -65,6 +69,17 @@ export const RouteView = () => {
           <Route path="docs" element={<EETabs />} />
         </Route>
         <Route path="catalog/:templateName" element={<EEDetailsPage />} />
+        <Route path="collections" element={<CollectionsCatalogPage />} />
+        <Route
+          path="collections/:collectionName"
+          element={<CollectionDetailsPage />}
+        />
+        <Route path="repositories">
+          <Route index element={<Navigate to="catalog" replace />} />
+          <Route path="catalog" element={<GitRepositoriesPage />} />
+          <Route path="ci-activity" element={<GitRepositoriesPage />} />
+          <Route path=":repositoryName" element={<RepositoryDetailsPage />} />
+        </Route>
         {/* Default redirects */}
         <Route
           path="/catalog/*"

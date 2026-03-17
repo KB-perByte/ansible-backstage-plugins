@@ -13,6 +13,14 @@ import { MockEntityListContextProvider } from '@backstage/plugin-catalog-react/t
 import { permissionApiRef } from '@backstage/plugin-permission-react';
 import { scaffolderApiRef } from '@backstage/plugin-scaffolder-react';
 
+jest.mock('../../hooks', () => ({
+  useIsSuperuser: () => ({
+    isSuperuser: true,
+    loading: false,
+    error: null,
+  }),
+}));
+
 import { HomeComponent } from './Home';
 import { rootRouteRef } from '../../routes';
 import { ansibleApiRef, rhAapAuthApiRef } from '../../apis';
@@ -26,8 +34,10 @@ describe('self-service', () => {
     // Reset mock implementations
     mockRhAapAuthApi.getAccessToken.mockResolvedValue('mock-token');
     mockAnsibleApi.getSyncStatus.mockResolvedValue({
-      orgsUsersTeams: { lastSync: null },
-      jobTemplates: { lastSync: null },
+      aap: {
+        orgsUsersTeams: { lastSync: null },
+        jobTemplates: { lastSync: null },
+      },
     });
 
     // Restore autocomplete if it was deleted
@@ -117,8 +127,10 @@ describe('self-service', () => {
       facetsFromEntityRefs(entityRefs, tags),
     );
     mockAnsibleApi.getSyncStatus.mockResolvedValue({
-      orgsUsersTeams: { lastSync: null },
-      jobTemplates: { lastSync: null },
+      aap: {
+        orgsUsersTeams: { lastSync: null },
+        jobTemplates: { lastSync: null },
+      },
     });
 
     await render(<HomeComponent />);
@@ -150,8 +162,10 @@ describe('self-service', () => {
     mockAnsibleApi.syncOrgsUsersTeam.mockResolvedValue(true);
     mockAnsibleApi.syncTemplates.mockResolvedValue(true);
     mockAnsibleApi.getSyncStatus.mockResolvedValue({
-      orgsUsersTeams: { lastSync: null },
-      jobTemplates: { lastSync: null },
+      aap: {
+        orgsUsersTeams: { lastSync: null },
+        jobTemplates: { lastSync: null },
+      },
     });
 
     await render(<HomeComponent />);
@@ -198,8 +212,10 @@ describe('self-service', () => {
     mockAnsibleApi.syncOrgsUsersTeam.mockResolvedValue(false);
     mockAnsibleApi.syncTemplates.mockResolvedValue(false);
     mockAnsibleApi.getSyncStatus.mockResolvedValue({
-      orgsUsersTeams: { lastSync: null },
-      jobTemplates: { lastSync: null },
+      aap: {
+        orgsUsersTeams: { lastSync: null },
+        jobTemplates: { lastSync: null },
+      },
     });
 
     await render(<HomeComponent />);
@@ -245,8 +261,10 @@ describe('self-service', () => {
     );
     mockAnsibleApi.syncOrgsUsersTeam.mockResolvedValue(true);
     mockAnsibleApi.getSyncStatus.mockResolvedValue({
-      orgsUsersTeams: { lastSync: null },
-      jobTemplates: { lastSync: null },
+      aap: {
+        orgsUsersTeams: { lastSync: null },
+        jobTemplates: { lastSync: null },
+      },
     });
 
     await render(<HomeComponent />);
@@ -289,8 +307,10 @@ describe('self-service', () => {
       facetsFromEntityRefs(entityRefs, tags),
     );
     mockAnsibleApi.getSyncStatus.mockResolvedValue({
-      orgsUsersTeams: { lastSync: null },
-      jobTemplates: { lastSync: null },
+      aap: {
+        orgsUsersTeams: { lastSync: null },
+        jobTemplates: { lastSync: null },
+      },
     });
 
     await render(<HomeComponent />);
@@ -341,8 +361,10 @@ describe('self-service', () => {
     );
     mockAnsibleApi.syncTemplates.mockResolvedValue(true);
     mockAnsibleApi.getSyncStatus.mockResolvedValue({
-      orgsUsersTeams: { lastSync: null },
-      jobTemplates: { lastSync: null },
+      aap: {
+        orgsUsersTeams: { lastSync: null },
+        jobTemplates: { lastSync: null },
+      },
     });
 
     await render(<HomeComponent />);

@@ -4,6 +4,8 @@ import { mockAnsibleService } from '../actions/mockIAAPService';
 import { mockServices } from '@backstage/backend-test-utils';
 import { MOCK_TOKEN } from '../mock';
 
+const mockFetch = jest.fn();
+
 describe('ansible-aap:autocomplete', () => {
   const config = new ConfigReader({
     integrations: {
@@ -40,9 +42,19 @@ describe('ansible-aap:autocomplete', () => {
   });
 
   const logger = mockServices.logger.mock();
+  const mockAuthService = mockServices.auth.mock();
+  const mockDiscoveryService = mockServices.discovery.mock();
 
   beforeEach(() => {
     jest.clearAllMocks();
+    (global as any).fetch = mockFetch;
+    mockAuthService.getOwnServiceCredentials.mockResolvedValue({} as any);
+    mockAuthService.getPluginRequestToken.mockResolvedValue({
+      token: 'catalog-token',
+    });
+    mockDiscoveryService.getBaseUrl.mockResolvedValue(
+      'http://catalog.example.com',
+    );
   });
 
   it('should return verbosity', async () => {
@@ -63,6 +75,8 @@ describe('ansible-aap:autocomplete', () => {
       config,
       logger,
       ansibleService: mockAnsibleService,
+      auth: mockAuthService,
+      discovery: mockDiscoveryService,
     });
     expect(response).toEqual({
       results: [
@@ -92,6 +106,8 @@ describe('ansible-aap:autocomplete', () => {
       config,
       logger,
       ansibleService: mockAnsibleService,
+      auth: mockAuthService,
+      discovery: mockDiscoveryService,
     });
     expect(response).toEqual(mockOrganizations);
   });
@@ -103,10 +119,201 @@ describe('ansible-aap:autocomplete', () => {
       config,
       logger,
       ansibleService: mockAnsibleService,
+      auth: mockAuthService,
+      discovery: mockDiscoveryService,
     });
     expect(response).toEqual({
       results: [{ id: 1, name: 'https://rhaap.test' }],
     });
+  });
+
+  it('should return collections with search query', async () => {
+    const catalogEntities = [
+      {
+        spec: {
+          collection_full_name: 'community.general',
+          collection_version: '1.0.0',
+        },
+        metadata: { annotations: {} },
+      },
+      {
+        spec: {
+          collection_full_name: 'community.general',
+          collection_version: '2.0.0',
+        },
+        metadata: { annotations: {} },
+      },
+      {
+        spec: {
+          collection_full_name: 'ansible.builtin',
+          collection_version: '1.0.0',
+        },
+        metadata: { annotations: {} },
+      },
+    ];
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => catalogEntities,
+    });
+
+    const context = {
+      searchQuery: 'kind=Component,spec.type=ansible-collection',
+    };
+
+    const response = await handleAutocompleteRequest({
+      resource: 'collections',
+      token: 'token',
+      context,
+      config,
+      logger,
+      ansibleService: mockAnsibleService,
+      auth: mockAuthService,
+      discovery: mockDiscoveryService,
+    });
+
+    expect(response).toEqual({
+      results: [
+        {
+          name: 'ansible.builtin',
+          versions: ['1.0.0'],
+          sources: [],
+          sourceVersions: {},
+        },
+        {
+          name: 'community.general',
+          versions: ['2.0.0', '1.0.0'],
+          sources: [],
+          sourceVersions: {},
+        },
+      ],
+    });
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('entities?filter='),
+      expect.any(Object),
+    );
+  });
+
+  it('should return collections with empty search query when context is not provided', async () => {
+    const catalogEntities = [
+      {
+        spec: {
+          collection_full_name: 'community.general',
+          collection_version: '1.0.0',
+        },
+        metadata: { annotations: {} },
+      },
+    ];
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => catalogEntities,
+    });
+
+    const response = await handleAutocompleteRequest({
+      resource: 'collections',
+      token: 'token',
+      config,
+      logger,
+      ansibleService: mockAnsibleService,
+      auth: mockAuthService,
+      discovery: mockDiscoveryService,
+    });
+
+    expect(response).toEqual({
+      results: [
+        {
+          name: 'community.general',
+          versions: ['1.0.0'],
+          sources: [],
+          sourceVersions: {},
+        },
+      ],
+    });
+    // URL has encoded filter (e.g. spec.type%3Dansible-collection)
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('ansible-collection'),
+      expect.any(Object),
+    );
+  });
+
+  it('should return collections with empty search query when searchQuery is not in context', async () => {
+    const catalogEntities = [
+      {
+        spec: {
+          collection_full_name: 'ansible.builtin',
+          collection_version: '1.0.0',
+        },
+        metadata: { annotations: {} },
+      },
+    ];
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => catalogEntities,
+    });
+
+    const context = { otherField: 'value' };
+
+    const response = await handleAutocompleteRequest({
+      resource: 'collections',
+      token: 'token',
+      context,
+      config,
+      logger,
+      ansibleService: mockAnsibleService,
+      auth: mockAuthService,
+      discovery: mockDiscoveryService,
+    });
+
+    expect(response).toEqual({
+      results: [
+        {
+          name: 'ansible.builtin',
+          versions: ['1.0.0'],
+          sources: [],
+          sourceVersions: {},
+        },
+      ],
+    });
+    // URL has encoded filter (e.g. spec.type%3Dansible-collection)
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('ansible-collection'),
+      expect.any(Object),
+    );
+  });
+
+  it('should handle empty collections result', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => [],
+    });
+
+    const response = await handleAutocompleteRequest({
+      resource: 'collections',
+      token: 'token',
+      config,
+      logger,
+      ansibleService: mockAnsibleService,
+      auth: mockAuthService,
+      discovery: mockDiscoveryService,
+    });
+
+    expect(response).toEqual({ results: [] });
+    expect(mockFetch).toHaveBeenCalled();
+  });
+
+  it('should handle error when getCollections fails', async () => {
+    mockFetch.mockRejectedValue(new Error('Failed to fetch collections'));
+
+    await expect(
+      handleAutocompleteRequest({
+        resource: 'collections',
+        token: 'token',
+        config,
+        logger,
+        ansibleService: mockAnsibleService,
+        auth: mockAuthService,
+        discovery: mockDiscoveryService,
+      }),
+    ).rejects.toThrow('Failed to fetch collections');
   });
 
   it('should log context when provided', async () => {
@@ -131,6 +338,8 @@ describe('ansible-aap:autocomplete', () => {
       config,
       logger,
       ansibleService: mockAnsibleService,
+      auth: mockAuthService,
+      discovery: mockDiscoveryService,
     });
 
     expect(logger.debug).toHaveBeenCalledWith(
@@ -153,6 +362,8 @@ describe('ansible-aap:autocomplete', () => {
       config,
       logger,
       ansibleService: mockAnsibleService,
+      auth: mockAuthService,
+      discovery: mockDiscoveryService,
     });
 
     // Logger should not be called with context-related message
@@ -162,67 +373,5 @@ describe('ansible-aap:autocomplete', () => {
       call[0]?.includes('Autocomplete context'),
     );
     expect(contextCalls.length).toBe(0);
-  });
-
-  it('should return scm_integrations with all configured GitHub and GitLab hosts', async () => {
-    const response = await handleAutocompleteRequest({
-      resource: 'scm_integrations',
-      token: 'token',
-      config,
-      logger,
-      ansibleService: mockAnsibleService,
-    });
-
-    expect(response.results).toHaveLength(3);
-    expect(response.results).toEqual([
-      {
-        id: 'github-0',
-        host: 'github.com',
-        type: 'github',
-        name: 'github.com',
-      },
-      {
-        id: 'github-1',
-        host: 'ghe.example.net',
-        type: 'github',
-        name: 'ghe.example.net',
-      },
-      {
-        id: 'gitlab-0',
-        host: 'gitlab.com',
-        type: 'gitlab',
-        name: 'gitlab.com',
-      },
-    ]);
-  });
-
-  it('should return scm_integrations with only GitHub when no GitLab configured', async () => {
-    const configWithOnlyGithub = new ConfigReader({
-      integrations: {
-        github: [{ host: 'github.com', token: 'token1' }],
-      },
-      ansible: {
-        rhaap: {
-          baseUrl: 'https://rhaap.test',
-          token: MOCK_TOKEN,
-          checkSSL: false,
-        },
-      },
-    });
-
-    const response = await handleAutocompleteRequest({
-      resource: 'scm_integrations',
-      token: 'token',
-      config: configWithOnlyGithub,
-      logger,
-      ansibleService: mockAnsibleService,
-    });
-
-    // Should have GitHub but no GitLab (since GitLab wasn't explicitly configured)
-    const githubHosts = response.results.filter(
-      (r: any) => r.type === 'github',
-    );
-    expect(githubHosts.length).toBeGreaterThanOrEqual(1);
-    expect(githubHosts.some((r: any) => r.host === 'github.com')).toBe(true);
   });
 });
