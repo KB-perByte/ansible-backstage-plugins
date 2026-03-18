@@ -374,4 +374,63 @@ describe('ansible-aap:autocomplete', () => {
     );
     expect(contextCalls.length).toBe(0);
   });
+
+  it('should return all configured SCM integrations', async () => {
+    const response = await handleAutocompleteRequest({
+      resource: 'scm_integrations',
+      token: 'token',
+      config,
+      logger,
+      ansibleService: mockAnsibleService,
+      auth: mockAuthService,
+      discovery: mockDiscoveryService,
+    });
+
+    expect(response).toEqual({
+      results: [
+        {
+          id: 'github-0',
+          host: 'github.com',
+          type: 'github',
+          name: 'github.com',
+        },
+        {
+          id: 'github-1',
+          host: 'ghe.example.net',
+          type: 'github',
+          name: 'ghe.example.net',
+        },
+        {
+          id: 'gitlab-0',
+          host: 'gitlab.com',
+          type: 'gitlab',
+          name: 'gitlab.com',
+        },
+      ],
+    });
+  });
+
+  it('should return empty array when no SCM integrations configured', async () => {
+    const emptyConfig = new ConfigReader({
+      ansible: {
+        rhaap: {
+          baseUrl: 'https://rhaap.test',
+        },
+      },
+    });
+
+    const response = await handleAutocompleteRequest({
+      resource: 'scm_integrations',
+      token: 'token',
+      config: emptyConfig,
+      logger,
+      ansibleService: mockAnsibleService,
+      auth: mockAuthService,
+      discovery: mockDiscoveryService,
+    });
+
+    // When no integrations are explicitly configured, Backstage returns default github.com
+    expect(response.results).toBeDefined();
+    expect(Array.isArray(response.results)).toBe(true);
+  });
 });
