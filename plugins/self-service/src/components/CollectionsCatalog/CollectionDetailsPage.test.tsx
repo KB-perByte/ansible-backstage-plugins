@@ -1,12 +1,40 @@
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { ThemeProvider, createTheme } from '@material-ui/core/styles';
-import { TestApiProvider, mockApis } from '@backstage/test-utils';
+import { TestApiProvider } from '@backstage/test-utils';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { catalogApiRef } from '@backstage/plugin-catalog-react';
 import { discoveryApiRef, fetchApiRef } from '@backstage/core-plugin-api';
-import { permissionApiRef } from '@backstage/plugin-permission-react';
 import { Entity } from '@backstage/catalog-model';
 import { CollectionDetailsPage } from './CollectionDetailsPage';
+
+jest.mock('@backstage/plugin-permission-react', () => ({
+  RequirePermission: (props: any) => props.children,
+}));
+
+jest.mock('@ansible/backstage-rhaap-common/permissions', () => ({
+  collectionsViewPermission: {
+    type: 'basic',
+    name: 'collections.view',
+    attributes: {},
+  },
+}));
+
+jest.mock('../../hooks', () => ({
+  useIsSuperuser: () => ({
+    isSuperuser: true,
+    loading: false,
+    error: null,
+  }),
+}));
+
+jest.mock('@backstage/core-plugin-api', () => {
+  const actual = jest.requireActual('@backstage/core-plugin-api');
+  return { ...actual, useRouteRef: () => () => '/self-service' };
+});
+
+jest.mock('../../routes', () => ({
+  rootRouteRef: { id: 'root-route-ref' },
+}));
 
 const theme = createTheme();
 
@@ -49,7 +77,6 @@ const renderWithRouter = (collectionName: string) => {
           [catalogApiRef, mockCatalogApi],
           [discoveryApiRef, mockDiscoveryApi],
           [fetchApiRef, mockFetchApi],
-          [permissionApiRef, mockApis.permission()],
         ]}
       >
         <MemoryRouter initialEntries={[`/collections/${collectionName}`]}>
@@ -57,6 +84,10 @@ const renderWithRouter = (collectionName: string) => {
             <Route
               path="/collections/:collectionName"
               element={<CollectionDetailsPage />}
+            />
+            <Route
+              path="/self-service/collections"
+              element={<div>Collections Page</div>}
             />
           </Routes>
         </MemoryRouter>
@@ -405,7 +436,7 @@ describe('CollectionDetailsPage', () => {
           }),
         });
       }
-      if (url.includes('git_readme_content')) {
+      if (url.includes('git_file_content')) {
         return Promise.resolve({
           ok: true,
           text: () => Promise.resolve('# Backend readme content'),
@@ -421,7 +452,7 @@ describe('CollectionDetailsPage', () => {
     });
     expect(mockFetchApi.fetch).toHaveBeenCalledWith(
       expect.stringMatching(
-        /git_readme_content\?.*filePath=README\.md.*ref=main/,
+        /git_file_content\?.*filePath=README\.md.*ref=main/,
       ),
     );
   });
@@ -459,7 +490,7 @@ describe('CollectionDetailsPage', () => {
           }),
         });
       }
-      if (url.includes('git_readme_content')) {
+      if (url.includes('git_file_content')) {
         return Promise.resolve({
           ok: true,
           text: () => Promise.resolve('Nested path readme'),
@@ -508,7 +539,7 @@ describe('CollectionDetailsPage', () => {
           json: async () => ({ content: { providers: [] } }),
         });
       }
-      if (url.includes('git_readme_content')) {
+      if (url.includes('git_file_content')) {
         return Promise.resolve({ ok: false });
       }
       return Promise.resolve({ ok: false });
@@ -521,7 +552,7 @@ describe('CollectionDetailsPage', () => {
     });
     await waitFor(() => {
       expect(mockFetchApi.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('git_readme_content'),
+        expect.stringContaining('git_file_content'),
       );
     });
   });
@@ -556,7 +587,7 @@ describe('CollectionDetailsPage', () => {
           json: async () => ({ content: { providers: [] } }),
         });
       }
-      if (url.includes('git_readme_content')) {
+      if (url.includes('git_file_content')) {
         return Promise.reject(new Error('Backend error'));
       }
       return Promise.resolve({ ok: false });
@@ -569,7 +600,7 @@ describe('CollectionDetailsPage', () => {
     });
     await waitFor(() => {
       expect(mockFetchApi.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('git_readme_content'),
+        expect.stringContaining('git_file_content'),
       );
     });
   });
@@ -739,7 +770,7 @@ describe('CollectionDetailsPage', () => {
       expect(screen.getByText('Direct fetch readme')).toBeInTheDocument();
     });
     expect(mockFetchApi.fetch).not.toHaveBeenCalledWith(
-      expect.stringContaining('git_readme_content'),
+      expect.stringContaining('git_file_content'),
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
       'https://raw.githubusercontent.com/o/r/main/README.md',
@@ -774,7 +805,7 @@ describe('CollectionDetailsPage', () => {
       expect(screen.getByText('About')).toBeInTheDocument();
     });
     expect(mockFetchApi.fetch).not.toHaveBeenCalledWith(
-      expect.stringContaining('git_readme_content'),
+      expect.stringContaining('git_file_content'),
     );
   });
 

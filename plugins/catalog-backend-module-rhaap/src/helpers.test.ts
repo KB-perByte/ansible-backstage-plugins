@@ -1,3 +1,4 @@
+import { ConfigReader } from '@backstage/config';
 import {
   formatNameSpace,
   buildFileUrl,
@@ -10,6 +11,12 @@ import {
   resolveProvidersToRun,
   buildInvalidRepositoryResults,
   getSyncResponseStatusCode,
+  checkRequireSuperuser,
+  createRequireSuperuserMiddleware,
+  type RequireSuperuserDeps,
+  isSafeHostname,
+  getGitLabIntegrationForHost,
+  getSkipTlsVerifyHosts,
 } from './helpers';
 import type { AnsibleGitContentsProvider } from './providers/AnsibleGitContentsProvider';
 
@@ -458,6 +465,35 @@ describe('helpers', () => {
     });
   });
 
+  describe('isSafeHostname', () => {
+    it('returns true for gitlab.com', () => {
+      expect(isSafeHostname('gitlab.com')).toBe(true);
+    });
+    it('returns true for single-label hostnames', () => {
+      expect(isSafeHostname('localhost')).toBe(true);
+    });
+    it('returns true for hostnames with hyphens and subdomains', () => {
+      expect(isSafeHostname('gitlab.enterprise.com')).toBe(true);
+      expect(isSafeHostname('my-gitlab.example.com')).toBe(true);
+    });
+    it('returns false for empty string', () => {
+      expect(isSafeHostname('')).toBe(false);
+    });
+    it('returns false when host contains path or scheme', () => {
+      expect(isSafeHostname('https://evil.com')).toBe(false);
+      expect(isSafeHostname('gitlab.com/path')).toBe(false);
+      expect(isSafeHostname('gitlab.com/')).toBe(false);
+    });
+    it('returns false when host contains credentials or @', () => {
+      expect(isSafeHostname('user@gitlab.com')).toBe(false);
+      expect(isSafeHostname('gitlab.com@evil.com')).toBe(false);
+    });
+    it('returns false for non-string or too long', () => {
+      expect(isSafeHostname(123 as unknown as string)).toBe(false);
+      expect(isSafeHostname('a'.repeat(254))).toBe(false);
+    });
+  });
+
   describe('getSyncResponseStatusCode', () => {
     it('returns 400 when emptyRequest is true', () => {
       expect(
@@ -542,6 +578,613 @@ describe('helpers', () => {
           emptyRequest: true,
         }),
       ).toBe(400);
+    });
+  });
+
+  describe('checkRequireSuperuser', () => {
+    const mockCredentials = {};
+    const mockUserEntityRef = 'user:default/alice';
+    const mockToken = 'mock-token';
+
+    function createMockReq(): any {
+      return {};
+    }
+
+    function createMockRes() {
+      const res: any = {
+        statusCode: 200,
+        status: jest.fn().mockImplementation(function statusImpl(
+          this: any,
+          code: number,
+        ) {
+          this.statusCode = code;
+          return this;
+        }),
+        json: jest.fn().mockImplementation(function jsonImpl(this: any) {
+          return this;
+        }),
+      };
+      return res;
+    }
+
+    function createMockDeps(
+      overrides: Partial<RequireSuperuserDeps> = {},
+    ): RequireSuperuserDeps {
+      return {
+        httpAuth: {
+          credentials: jest.fn().mockResolvedValue(mockCredentials),
+        } as any,
+        userInfo: {
+          getUserInfo: jest
+            .fn()
+            .mockResolvedValue({ userEntityRef: mockUserEntityRef }),
+        } as any,
+        auth: {
+          isPrincipal: jest
+            .fn()
+            .mockImplementation((_: any, type: string) => type === 'user'),
+          getPluginRequestToken: jest
+            .fn()
+            .mockResolvedValue({ token: mockToken }),
+        } as any,
+        catalogClient: {
+          getEntityByRef: jest.fn().mockResolvedValue({
+            metadata: {
+              annotations: { 'aap.platform/is_superuser': 'true' },
+            },
+          }),
+        } as any,
+        logger: {
+          info: jest.fn(),
+          warn: jest.fn(),
+          error: jest.fn(),
+          debug: jest.fn(),
+          child: jest.fn().mockReturnThis(),
+        } as any,
+        ...overrides,
+      };
+    }
+
+    it('returns true when user has aap.platform/is_superuser annotation set to true', async () => {
+      const deps = createMockDeps();
+      const check = checkRequireSuperuser(deps);
+      const req = createMockReq();
+      const res = createMockRes();
+
+      const result = await check(req, res);
+
+      expect(result).toBe(true);
+      expect(res.status).not.toHaveBeenCalled();
+      expect(res.json).not.toHaveBeenCalled();
+      expect(deps.httpAuth.credentials).toHaveBeenCalledWith(req, {
+        allow: ['service', 'user'],
+      });
+      expect(deps.userInfo.getUserInfo).toHaveBeenCalledWith(mockCredentials);
+      expect(deps.catalogClient.getEntityByRef).toHaveBeenCalledWith(
+        mockUserEntityRef,
+        { token: mockToken },
+      );
+    });
+
+    it('returns false and sends 403 when user lacks superuser annotation', async () => {
+      const deps = createMockDeps({
+        catalogClient: {
+          getEntityByRef: jest.fn().mockResolvedValue({
+            metadata: { annotations: {} },
+          }),
+        } as any,
+      });
+      const check = checkRequireSuperuser(deps);
+      const req = createMockReq();
+      const res = createMockRes();
+
+      const result = await check(req, res);
+
+      expect(result).toBe(false);
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Forbidden: superuser access required',
+      });
+    });
+
+    it('returns false and sends 403 when annotation is not the string "true"', async () => {
+      const deps = createMockDeps({
+        catalogClient: {
+          getEntityByRef: jest.fn().mockResolvedValue({
+            metadata: {
+              annotations: { 'aap.platform/is_superuser': 'false' },
+            },
+          }),
+        } as any,
+      });
+      const check = checkRequireSuperuser(deps);
+      const res = createMockRes();
+
+      const result = await check(createMockReq(), res);
+
+      expect(result).toBe(false);
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Forbidden: superuser access required',
+      });
+    });
+
+    it('returns false and sends 500 when getUserInfo throws', async () => {
+      const deps = createMockDeps({
+        userInfo: {
+          getUserInfo: jest.fn().mockRejectedValue(new Error('User not found')),
+        } as any,
+      });
+      const check = checkRequireSuperuser(deps);
+      const res = createMockRes();
+
+      const result = await check(createMockReq(), res);
+
+      expect(result).toBe(false);
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Authorization failed: User not found',
+      });
+      expect(deps.logger.error).toHaveBeenCalledWith(
+        'Superuser check failed: User not found',
+      );
+    });
+
+    it('returns true for service principal (external access token) when no subject allowlist', async () => {
+      const serviceCredentials = {
+        principal: { type: 'service' as const, subject: 'external-auth-token' },
+      };
+      const deps = createMockDeps({
+        httpAuth: {
+          credentials: jest.fn().mockResolvedValue(serviceCredentials),
+        } as any,
+        auth: {
+          isPrincipal: jest
+            .fn()
+            .mockImplementation((_: any, type: string) => type === 'service'),
+          getPluginRequestToken: jest
+            .fn()
+            .mockResolvedValue({ token: mockToken }),
+        } as any,
+      });
+
+      const check = checkRequireSuperuser(deps);
+      const res = createMockRes();
+
+      const result = await check(createMockReq(), res);
+
+      expect(result).toBe(true);
+      expect(res.status).not.toHaveBeenCalled();
+      expect(res.json).not.toHaveBeenCalled();
+      expect(deps.auth.isPrincipal).toHaveBeenCalledWith(
+        serviceCredentials,
+        'service',
+      );
+      expect(deps.logger.info).toHaveBeenCalledWith(
+        'Allowing sync request: external access (service principal, subject=external-auth-token)',
+      );
+      expect(deps.userInfo.getUserInfo).not.toHaveBeenCalled();
+    });
+
+    it('returns true for service principal when subject is in allowedExternalAccessSubjects', async () => {
+      const serviceCredentials = {
+        principal: { type: 'service' as const, subject: 'external-auth-token' },
+      };
+      const deps = createMockDeps({
+        httpAuth: {
+          credentials: jest.fn().mockResolvedValue(serviceCredentials),
+        } as any,
+        auth: {
+          isPrincipal: jest
+            .fn()
+            .mockImplementation((_: any, type: string) => type === 'service'),
+          getPluginRequestToken: jest
+            .fn()
+            .mockResolvedValue({ token: mockToken }),
+        } as any,
+        allowedExternalAccessSubjects: ['external-auth-token', 'other-allowed'],
+      });
+
+      const check = checkRequireSuperuser(deps);
+      const res = createMockRes();
+
+      const result = await check(createMockReq(), res);
+
+      expect(result).toBe(true);
+      expect(deps.logger.info).toHaveBeenCalledWith(
+        'Allowing sync request: external access (service principal, subject=external-auth-token)',
+      );
+    });
+
+    it('returns false and sends 403 when service principal subject not in allowedExternalAccessSubjects', async () => {
+      const serviceCredentials = {
+        principal: { type: 'service' as const, subject: 'random-service' },
+      };
+      const deps = createMockDeps({
+        httpAuth: {
+          credentials: jest.fn().mockResolvedValue(serviceCredentials),
+        } as any,
+        auth: {
+          isPrincipal: jest
+            .fn()
+            .mockImplementation((_: any, type: string) => type === 'service'),
+          getPluginRequestToken: jest
+            .fn()
+            .mockResolvedValue({ token: mockToken }),
+        } as any,
+        allowedExternalAccessSubjects: ['external-auth-token'],
+      });
+
+      const check = checkRequireSuperuser(deps);
+      const res = createMockRes();
+
+      const result = await check(createMockReq(), res);
+
+      expect(result).toBe(false);
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.json).toHaveBeenCalledWith({
+        error:
+          'Forbidden: external access subject not allowed for this endpoint',
+      });
+      expect(deps.logger.warn).toHaveBeenCalledWith(
+        "Rejecting sync request: service principal subject 'random-service' not in allowedExternalAccessSubjects",
+      );
+    });
+
+    it('returns false and sends 500 when credentials() throws (e.g. missing or not allowed)', async () => {
+      const deps = createMockDeps({
+        httpAuth: {
+          credentials: jest
+            .fn()
+            .mockRejectedValue(new Error('Missing credentials')),
+        } as any,
+      });
+
+      const check = checkRequireSuperuser(deps);
+      const res = createMockRes();
+
+      const result = await check(createMockReq(), res);
+
+      expect(result).toBe(false);
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Authorization failed: Missing credentials',
+      });
+      expect(deps.httpAuth.credentials).toHaveBeenCalledWith(
+        expect.anything(),
+        { allow: ['service', 'user'] },
+      );
+    });
+
+    it('returns false and sends 500 when getEntityByRef throws', async () => {
+      const deps = createMockDeps({
+        catalogClient: {
+          getEntityByRef: jest
+            .fn()
+            .mockRejectedValue(new Error('Catalog error')),
+        } as any,
+      });
+      const check = checkRequireSuperuser(deps);
+      const res = createMockRes();
+
+      const result = await check(createMockReq(), res);
+
+      expect(result).toBe(false);
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Authorization failed: Catalog error',
+      });
+      expect(deps.logger.error).toHaveBeenCalledWith(
+        'Superuser check failed: Catalog error',
+      );
+    });
+
+    it('returns false and sends 500 when httpAuth.credentials throws', async () => {
+      const deps = createMockDeps({
+        httpAuth: {
+          credentials: jest
+            .fn()
+            .mockRejectedValue(new Error('Missing credentials')),
+        } as any,
+      });
+      const check = checkRequireSuperuser(deps);
+      const res = createMockRes();
+
+      const result = await check(createMockReq(), res);
+
+      expect(result).toBe(false);
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Authorization failed: Missing credentials',
+      });
+    });
+
+    it('handles non-Error throw by stringifying the value', async () => {
+      const deps = createMockDeps({
+        userInfo: {
+          getUserInfo: jest.fn().mockRejectedValue('string error'),
+        } as any,
+      });
+      const check = checkRequireSuperuser(deps);
+      const res = createMockRes();
+
+      const result = await check(createMockReq(), res);
+
+      expect(result).toBe(false);
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Authorization failed: string error',
+      });
+    });
+
+    it('returns false when userEntity is null/undefined', async () => {
+      const deps = createMockDeps({
+        catalogClient: {
+          getEntityByRef: jest.fn().mockResolvedValue(null),
+        } as any,
+      });
+      const check = checkRequireSuperuser(deps);
+      const res = createMockRes();
+
+      const result = await check(createMockReq(), res);
+
+      expect(result).toBe(false);
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Forbidden: superuser access required',
+      });
+    });
+  });
+
+  describe('getGitLabIntegrationForHost', () => {
+    it('returns empty object when no integrations configured', () => {
+      const config = new ConfigReader({});
+      const result = getGitLabIntegrationForHost(config, 'gitlab.com');
+      expect(result).toEqual({});
+    });
+
+    it('returns empty object when integrations array is empty', () => {
+      const config = new ConfigReader({
+        integrations: {
+          gitlab: [],
+        },
+      });
+      const result = getGitLabIntegrationForHost(config, 'gitlab.com');
+      expect(result).toEqual({});
+    });
+
+    it('returns token for matching host', () => {
+      const config = new ConfigReader({
+        integrations: {
+          gitlab: [
+            {
+              host: 'gitlab.com',
+              token: 'test-token',
+            },
+          ],
+        },
+      });
+      const result = getGitLabIntegrationForHost(config, 'gitlab.com');
+      expect(result).toEqual({ token: 'test-token', apiBaseUrl: undefined });
+    });
+
+    it('returns token and apiBaseUrl for matching host', () => {
+      const config = new ConfigReader({
+        integrations: {
+          gitlab: [
+            {
+              host: 'gitlab.example.com',
+              token: 'my-token',
+              apiBaseUrl: 'https://gitlab.example.com/api/v4/',
+            },
+          ],
+        },
+      });
+      const result = getGitLabIntegrationForHost(config, 'gitlab.example.com');
+      expect(result).toEqual({
+        token: 'my-token',
+        apiBaseUrl: 'https://gitlab.example.com/api/v4',
+      });
+    });
+
+    it('strips trailing slash from apiBaseUrl', () => {
+      const config = new ConfigReader({
+        integrations: {
+          gitlab: [
+            {
+              host: 'gitlab.com',
+              token: 'token',
+              apiBaseUrl: 'https://gitlab.com/api/v4/',
+            },
+          ],
+        },
+      });
+      const result = getGitLabIntegrationForHost(config, 'gitlab.com');
+      expect(result.apiBaseUrl).toBe('https://gitlab.com/api/v4');
+    });
+
+    it('defaults host to gitlab.com when not specified', () => {
+      const config = new ConfigReader({
+        integrations: {
+          gitlab: [
+            {
+              token: 'default-token',
+            },
+          ],
+        },
+      });
+      const result = getGitLabIntegrationForHost(config, 'gitlab.com');
+      expect(result).toEqual({ token: 'default-token', apiBaseUrl: undefined });
+    });
+
+    it('returns empty object when host does not match', () => {
+      const config = new ConfigReader({
+        integrations: {
+          gitlab: [
+            {
+              host: 'gitlab.example.com',
+              token: 'token',
+            },
+          ],
+        },
+      });
+      const result = getGitLabIntegrationForHost(config, 'gitlab.other.com');
+      expect(result).toEqual({});
+    });
+
+    it('finds correct host among multiple integrations', () => {
+      const config = new ConfigReader({
+        integrations: {
+          gitlab: [
+            {
+              host: 'gitlab.com',
+              token: 'public-token',
+            },
+            {
+              host: 'gitlab.internal.com',
+              token: 'internal-token',
+            },
+          ],
+        },
+      });
+      const result = getGitLabIntegrationForHost(config, 'gitlab.internal.com');
+      expect(result).toEqual({
+        token: 'internal-token',
+        apiBaseUrl: undefined,
+      });
+    });
+  });
+
+  describe('createRequireSuperuserMiddleware', () => {
+    const mockCredentials = {};
+    const mockUserEntityRef = 'user:default/bob';
+    const mockToken = 'mock-token';
+
+    function createMockReq(): any {
+      return {};
+    }
+
+    function createMockRes() {
+      return {
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn().mockReturnThis(),
+      } as any;
+    }
+
+    function createMockDeps(superuser = true): RequireSuperuserDeps {
+      return {
+        httpAuth: {
+          credentials: jest.fn().mockResolvedValue(mockCredentials),
+        } as any,
+        userInfo: {
+          getUserInfo: jest
+            .fn()
+            .mockResolvedValue({ userEntityRef: mockUserEntityRef }),
+        } as any,
+        auth: {
+          isPrincipal: jest
+            .fn()
+            .mockImplementation((_: any, type: string) => type === 'user'),
+          getPluginRequestToken: jest
+            .fn()
+            .mockResolvedValue({ token: mockToken }),
+        } as any,
+        catalogClient: {
+          getEntityByRef: jest.fn().mockResolvedValue({
+            metadata: {
+              annotations: superuser
+                ? { 'aap.platform/is_superuser': 'true' }
+                : {},
+            },
+          }),
+        } as any,
+        logger: {
+          info: jest.fn(),
+          warn: jest.fn(),
+          error: jest.fn(),
+          debug: jest.fn(),
+          child: jest.fn().mockReturnThis(),
+        } as any,
+      };
+    }
+
+    it('calls next() when superuser check returns true', async () => {
+      const deps = createMockDeps(true);
+      const middleware = createRequireSuperuserMiddleware(deps);
+      const next = jest.fn();
+      const req = createMockReq();
+      const res = createMockRes();
+
+      await middleware(req, res, next);
+
+      expect(next).toHaveBeenCalledTimes(1);
+      expect(next).toHaveBeenCalledWith();
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it('does not call next() when superuser check returns false', async () => {
+      const deps = createMockDeps(false);
+      const middleware = createRequireSuperuserMiddleware(deps);
+      const next = jest.fn();
+      const req = createMockReq();
+      const res = createMockRes();
+
+      await middleware(req, res, next);
+
+      expect(next).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Forbidden: superuser access required',
+      });
+    });
+
+    it('does not call next() when check throws (sends 500)', async () => {
+      const deps = createMockDeps(true);
+      (deps.userInfo.getUserInfo as jest.Mock).mockRejectedValue(
+        new Error('Auth failed'),
+      );
+      const middleware = createRequireSuperuserMiddleware(deps);
+      const next = jest.fn();
+      const res = createMockRes();
+
+      await middleware(createMockReq(), res, next);
+
+      expect(next).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Authorization failed: Auth failed',
+      });
+    });
+  });
+
+  describe('getSkipTlsVerifyHosts', () => {
+    it('returns empty array when config not set', () => {
+      const config = new ConfigReader({});
+      const result = getSkipTlsVerifyHosts(config);
+      expect(result).toEqual([]);
+    });
+
+    it('returns configured hosts', () => {
+      const config = new ConfigReader({
+        catalog: {
+          ansible: {
+            skipTlsVerifyForHosts: ['gitlab.internal.com', 'gitlab.dev.com'],
+          },
+        },
+      });
+      const result = getSkipTlsVerifyHosts(config);
+      expect(result).toEqual(['gitlab.internal.com', 'gitlab.dev.com']);
+    });
+
+    it('returns empty array when array is empty', () => {
+      const config = new ConfigReader({
+        catalog: {
+          ansible: {
+            skipTlsVerifyForHosts: [],
+          },
+        },
+      });
+      const result = getSkipTlsVerifyHosts(config);
+      expect(result).toEqual([]);
     });
   });
 });
