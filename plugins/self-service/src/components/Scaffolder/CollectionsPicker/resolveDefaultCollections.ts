@@ -34,7 +34,7 @@ function resolveSourceVersions(
   const key = Object.keys(entry.sourceVersions || {}).find(k =>
     sourcesMatch(k, matchedSource),
   );
-  return key ? entry.sourceVersions![key] : undefined;
+  return key ? entry.sourceVersions?.[key] : undefined;
 }
 
 /**
@@ -50,7 +50,7 @@ export function parseSchemaDefaultCollections(
       (x): x is Record<string, unknown> => x !== null && typeof x === 'object',
     )
     .map(r => {
-      const name = String(r.name ?? '').trim();
+      const name = typeof r.name === 'string' ? r.name.trim() : '';
       const item: CollectionItem = { name };
       if (typeof r.source === 'string' && r.source.trim()) {
         item.source = r.source.trim();
@@ -71,6 +71,98 @@ function dedupeByName(items: CollectionItem[]): CollectionItem[] {
   return [...map.values()];
 }
 
+function findCatalogEntry(
+  catalog: CatalogCollection[],
+  item: CollectionItem,
+): CatalogCollection | undefined {
+  if (!item.name?.trim()) {
+    return undefined;
+  }
+  return catalog.find(c => normalize(c.name) === normalize(item.name));
+}
+
+function versionExistsInEntry(
+  entry: CatalogCollection,
+  version: string,
+): boolean {
+  const vNorm = normalize(version);
+  const inFlat = entry.versions?.some(v => normalize(v) === vNorm) ?? false;
+  const inNested = Object.values(entry.sourceVersions || {}).some(vers =>
+    vers.some(v => normalize(v) === vNorm),
+  );
+  return inFlat || inNested;
+}
+
+function resolveNameOnly(entry: CatalogCollection): CollectionItem {
+  return { name: entry.name };
+}
+
+function resolveSourceOnly(
+  entry: CatalogCollection,
+  source: string,
+): CollectionItem | undefined {
+  const matchedSource = findSourceKey(entry, source);
+  if (!matchedSource) {
+    return undefined;
+  }
+  return { name: entry.name, source: matchedSource };
+}
+
+function resolveVersionOnly(
+  entry: CatalogCollection,
+  version: string,
+): CollectionItem | undefined {
+  if (!versionExistsInEntry(entry, version)) {
+    return undefined;
+  }
+  return { name: entry.name, version };
+}
+
+function resolveSourceAndVersion(
+  entry: CatalogCollection,
+  source: string,
+  version: string,
+): CollectionItem | undefined {
+  const matchedSource = findSourceKey(entry, source);
+  if (!matchedSource) {
+    return undefined;
+  }
+  const versForSource = resolveSourceVersions(entry, matchedSource);
+  const vOk = versForSource?.some(v => normalize(v) === normalize(version));
+  if (!vOk) {
+    return undefined;
+  }
+  return {
+    name: entry.name,
+    source: matchedSource,
+    version,
+  };
+}
+
+function resolveDefaultItemAgainstEntry(
+  item: CollectionItem,
+  entry: CatalogCollection,
+): CollectionItem | undefined {
+  const source = item.source?.trim();
+  const version = item.version?.trim();
+  const hasSource = !!source;
+  const hasVersion = !!version;
+
+  if (!hasSource && !hasVersion) {
+    return resolveNameOnly(entry);
+  }
+  if (hasSource && !hasVersion && source) {
+    return resolveSourceOnly(entry, source);
+  }
+  if (!hasSource && hasVersion && version) {
+    return resolveVersionOnly(entry, version);
+  }
+  if (hasSource && hasVersion && source && version) {
+    return resolveSourceAndVersion(entry, source, version);
+  }
+  return undefined;
+}
+
 /**
  * Resolves template defaults against catalog-backed autocomplete results.
  * Only entries that exist in the catalog (with optional source/version checks) are returned.
@@ -82,48 +174,14 @@ export function resolveDefaultCollectionsFromCatalog(
   const result: CollectionItem[] = [];
 
   for (const item of defaults) {
-    if (!item.name?.trim()) continue;
-    const entry = catalog.find(c => normalize(c.name) === normalize(item.name));
-    if (!entry) continue;
-
-    const hasSource = !!item.source?.trim();
-    const hasVersion = !!item.version?.trim();
-
-    if (!hasSource && !hasVersion) {
-      result.push({ name: entry.name });
+    const entry = findCatalogEntry(catalog, item);
+    if (!entry) {
       continue;
     }
-
-    if (hasSource && !hasVersion) {
-      const matchedSource = findSourceKey(entry, item.source!);
-      if (!matchedSource) continue;
-      result.push({ name: entry.name, source: matchedSource });
-      continue;
+    const resolved = resolveDefaultItemAgainstEntry(item, entry);
+    if (resolved) {
+      result.push(resolved);
     }
-
-    if (!hasSource && hasVersion) {
-      const vNorm = normalize(item.version!);
-      const inFlat = entry.versions?.some(v => normalize(v) === vNorm);
-      const inNested = Object.values(entry.sourceVersions || {}).some(vers =>
-        vers.some(v => normalize(v) === vNorm),
-      );
-      if (!inFlat && !inNested) continue;
-      result.push({ name: entry.name, version: item.version });
-      continue;
-    }
-
-    const matchedSource = findSourceKey(entry, item.source!);
-    if (!matchedSource) continue;
-    const versForSource = resolveSourceVersions(entry, matchedSource);
-    const vOk = versForSource?.some(
-      v => normalize(v) === normalize(item.version!),
-    );
-    if (!vOk) continue;
-    result.push({
-      name: entry.name,
-      source: matchedSource,
-      version: item.version,
-    });
   }
 
   return dedupeByName(result);
