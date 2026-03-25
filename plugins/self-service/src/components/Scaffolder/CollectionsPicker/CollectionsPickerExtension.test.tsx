@@ -37,6 +37,7 @@ describe('CollectionsPickerExtension', () => {
     };
 
     jest.clearAllMocks();
+    sessionStorage.clear();
 
     mockUseApi.mockImplementation((ref: any) => {
       if (ref === scaffolderApiRef) {
@@ -148,6 +149,214 @@ describe('CollectionsPickerExtension', () => {
       expect(
         screen.getByRole('button', { name: 'Add collection' }),
       ).toBeInTheDocument();
+    });
+  });
+
+  describe('Schema default resolution from catalog', () => {
+    it('calls onChange with resolved defaults when catalog matches', async () => {
+      const onChange = jest.fn();
+      const catalogEntry = {
+        name: 'amazon.aws',
+        sources: ['Private Automation Hub / rh-certified'],
+        sourceVersions: {
+          'Private Automation Hub / rh-certified': ['1.0.0'],
+        },
+        versions: ['1.0.0'],
+      };
+      mockScaffolderApi.autocomplete.mockResolvedValue({
+        results: [catalogEntry],
+      });
+
+      const props = createMockProps({
+        formData: undefined,
+        onChange,
+        schema: {
+          title: 'Ansible Collections',
+          type: 'array',
+          default: [
+            {
+              name: 'amazon.aws',
+              source: 'rh-certified',
+              version: '1.0.0',
+            },
+          ],
+          items: { type: 'object' },
+        } as any,
+      });
+
+      render(<CollectionsPickerExtension {...props} />);
+
+      await waitFor(() => {
+        expect(onChange).toHaveBeenCalledWith([
+          {
+            name: 'amazon.aws',
+            source: 'Private Automation Hub / rh-certified',
+            version: '1.0.0',
+          },
+        ]);
+      });
+
+      expect(screen.getByText('amazon.aws')).toBeInTheDocument();
+    });
+
+    it('calls onChange with resolved defaults when formData is empty array (RJSF initial state)', async () => {
+      const onChange = jest.fn();
+      mockScaffolderApi.autocomplete.mockResolvedValue({
+        results: [
+          {
+            name: 'amazon.aws',
+            versions: ['1.0.0'],
+          },
+        ],
+      });
+
+      const props = createMockProps({
+        formData: [],
+        onChange,
+        schema: {
+          default: [{ name: 'amazon.aws' }],
+        } as any,
+      });
+
+      render(<CollectionsPickerExtension {...props} />);
+
+      await waitFor(() => {
+        expect(onChange).toHaveBeenCalledWith([{ name: 'amazon.aws' }]);
+      });
+
+      expect(screen.getByText('amazon.aws')).toBeInTheDocument();
+    });
+
+    it('does not apply defaults when catalog has no match', async () => {
+      const onChange = jest.fn();
+      mockScaffolderApi.autocomplete.mockResolvedValue({
+        results: [
+          {
+            name: 'other.collection',
+            versions: ['1.0.0'],
+          },
+        ],
+      });
+
+      const props = createMockProps({
+        formData: undefined,
+        onChange,
+        schema: {
+          default: [{ name: 'amazon.aws' }],
+        } as any,
+      });
+
+      render(<CollectionsPickerExtension {...props} />);
+
+      await waitFor(() => {
+        expect(mockScaffolderApi.autocomplete).toHaveBeenCalled();
+      });
+
+      expect(onChange).not.toHaveBeenCalled();
+      expect(screen.queryByText(/Selected collections/)).not.toBeInTheDocument();
+    });
+
+    it('removes a default chip in one click', async () => {
+      const onChange = jest.fn();
+      mockScaffolderApi.autocomplete.mockResolvedValue({
+        results: [{ name: 'amazon.aws', versions: ['1.0.0'] }],
+      });
+
+      const props = createMockProps({
+        formData: [],
+        onChange,
+        schema: {
+          default: [{ name: 'amazon.aws' }],
+        } as any,
+      });
+
+      render(<CollectionsPickerExtension {...props} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('amazon.aws')).toBeInTheDocument();
+      });
+
+      const chipRoot = screen
+        .getByText('amazon.aws')
+        .closest('.MuiChip-root') as HTMLElement;
+      const deleteIcon = chipRoot.querySelector('.MuiChip-deleteIcon');
+      expect(deleteIcon).toBeInTheDocument();
+      fireEvent.click(deleteIcon as Element);
+
+      await waitFor(() => {
+        expect(onChange).toHaveBeenLastCalledWith([]);
+      });
+    });
+
+    it('keeps default chip deleted after step revisit with empty formData', async () => {
+      const onChange = jest.fn();
+      mockScaffolderApi.autocomplete.mockResolvedValue({
+        results: [{ name: 'amazon.aws', versions: ['1.0.0'] }],
+      });
+
+      const baseProps = createMockProps({
+        formData: [],
+        onChange,
+        schema: {
+          default: [{ name: 'amazon.aws' }],
+        } as any,
+      });
+
+      const { unmount } = render(<CollectionsPickerExtension {...baseProps} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('amazon.aws')).toBeInTheDocument();
+      });
+
+      const chipRoot = screen
+        .getByText('amazon.aws')
+        .closest('.MuiChip-root') as HTMLElement;
+      const deleteIcon = chipRoot.querySelector('.MuiChip-deleteIcon');
+      fireEvent.click(deleteIcon as Element);
+
+      await waitFor(() => {
+        expect(onChange).toHaveBeenLastCalledWith([]);
+      });
+
+      unmount();
+      render(
+        <CollectionsPickerExtension
+          {...createMockProps({ ...baseProps, formData: [] })}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(screen.queryByText('amazon.aws')).not.toBeInTheDocument();
+      });
+    });
+
+    it('does not render stale default-only formData after back-step remount when defaults were cleared', async () => {
+      const onChange = jest.fn();
+      mockScaffolderApi.autocomplete.mockResolvedValue({
+        results: [{ name: 'amazon.aws', versions: ['1.0.0'] }],
+      });
+
+      sessionStorage.setItem(
+        'collections-picker-defaults-cleared:collections',
+        'true',
+      );
+
+      const props = createMockProps({
+        formData: [{ name: 'amazon.aws' }],
+        onChange,
+        schema: {
+          default: [{ name: 'amazon.aws' }],
+        } as any,
+      });
+
+      render(<CollectionsPickerExtension {...props} />);
+
+      await waitFor(() => {
+        expect(mockScaffolderApi.autocomplete).toHaveBeenCalled();
+      });
+
+      expect(screen.queryByText('amazon.aws')).not.toBeInTheDocument();
+      expect(onChange).not.toHaveBeenCalledWith([{ name: 'amazon.aws' }]);
     });
   });
 
@@ -1573,7 +1782,7 @@ describe('CollectionsPickerExtension', () => {
         expect(mockScaffolderApi.autocomplete).toHaveBeenCalled();
       });
 
-      const chip = screen.getByText('community.general');
+      const chip = screen.getByText(/community\.general/);
       fireEvent.click(chip);
 
       await waitFor(() => {
@@ -1829,7 +2038,7 @@ describe('CollectionsPickerExtension', () => {
       );
 
       // Click existing chip to enter edit mode
-      const chip = screen.getByText('community.general');
+      const chip = screen.getByText(/community\.general/);
       fireEvent.click(chip);
 
       const input = screen.getByLabelText('Collection');
@@ -1865,7 +2074,7 @@ describe('CollectionsPickerExtension', () => {
         expect(mockScaffolderApi.autocomplete).toHaveBeenCalled();
       });
 
-      const communityGeneralChip = screen.getByText('community.general');
+      const communityGeneralChip = screen.getByText(/community\.general/);
       expect(communityGeneralChip).toBeInTheDocument();
 
       const chipElement = communityGeneralChip.closest('.MuiChip-root');
@@ -1887,7 +2096,7 @@ describe('CollectionsPickerExtension', () => {
         expect(mockScaffolderApi.autocomplete).toHaveBeenCalled();
       });
 
-      const chip = screen.getByText('community.general');
+      const chip = screen.getByText(/community\.general/);
       const chipElement = chip.closest('.MuiChip-root') as HTMLElement;
       expect(chipElement).toBeInTheDocument();
       expect(chipElement).toHaveClass('Mui-disabled');
@@ -1903,7 +2112,7 @@ describe('CollectionsPickerExtension', () => {
         expect(mockScaffolderApi.autocomplete).toHaveBeenCalled();
       });
 
-      const chip = screen.getByText('community.general');
+      const chip = screen.getByText(/community\.general/);
       const chipElement = chip.closest('.MuiChip-root');
       const deleteButton = chipElement?.querySelector('button');
       if (deleteButton) {
@@ -1925,11 +2134,11 @@ describe('CollectionsPickerExtension', () => {
 
       // Wait until chips appear
       await waitFor(() => {
-        expect(screen.getByText('community.general')).toBeInTheDocument();
+        expect(screen.getByText(/community\.general/)).toBeInTheDocument();
       });
 
       // Find the chip container
-      const chip = screen.getByText('community.general');
+      const chip = screen.getByText(/community\.general/);
       const chipRoot = chip.closest('.MuiChip-root');
 
       // Click the delete icon inside the chip
@@ -1952,10 +2161,10 @@ describe('CollectionsPickerExtension', () => {
 
       // Wait for chip to render
       await waitFor(() => {
-        expect(screen.getByText('community.general')).toBeInTheDocument();
+        expect(screen.getByText(/community\.general/)).toBeInTheDocument();
       });
 
-      const chip = screen.getByText('community.general');
+      const chip = screen.getByText(/community\.general/);
       const chipRoot = chip.closest('.MuiChip-root');
 
       // MUI delete icon is an SVG inside chip
@@ -1978,10 +2187,10 @@ describe('CollectionsPickerExtension', () => {
       render(<CollectionsPickerExtension {...props} />);
 
       await waitFor(() =>
-        expect(screen.getByText('community.general')).toBeInTheDocument(),
+        expect(screen.getByText(/community\.general/)).toBeInTheDocument(),
       );
 
-      const chip = screen.getByText('community.general');
+      const chip = screen.getByText(/community\.general/);
       const chipRoot = chip.closest('.MuiChip-root');
       const deleteIcon = chipRoot?.querySelector('.MuiChip-deleteIcon');
 
@@ -2008,7 +2217,7 @@ describe('CollectionsPickerExtension', () => {
         expect(mockScaffolderApi.autocomplete).toHaveBeenCalled();
       });
 
-      const chip = screen.getByText('community.general');
+      const chip = screen.getByText(/community\.general/);
       fireEvent.click(chip);
 
       await waitFor(() => {
@@ -2027,7 +2236,7 @@ describe('CollectionsPickerExtension', () => {
         expect(mockScaffolderApi.autocomplete).toHaveBeenCalled();
       });
 
-      const chip = screen.getByText('community.general');
+      const chip = screen.getByText(/community\.general/);
       fireEvent.click(chip);
 
       await waitFor(() => {
@@ -2050,7 +2259,7 @@ describe('CollectionsPickerExtension', () => {
         expect(mockScaffolderApi.autocomplete).toHaveBeenCalled();
       });
 
-      const chip = screen.getByText('community.general');
+      const chip = screen.getByText(/community\.general/);
       fireEvent.click(chip);
 
       await waitFor(() => {
@@ -2108,7 +2317,7 @@ describe('CollectionsPickerExtension', () => {
 
       render(<CollectionsPickerExtension {...props} />);
 
-      const chip = screen.getByText('community.general');
+      const chip = screen.getByText(/community\.general/);
       fireEvent.click(chip);
 
       const collectionInput = screen.getAllByLabelText('Collection')[0];
@@ -2188,7 +2397,7 @@ describe('CollectionsPickerExtension', () => {
         <CollectionsPickerExtension {...props} formData={newFormData} />,
       );
 
-      expect(screen.getByText('community.general')).toBeInTheDocument();
+      expect(screen.getByText(/community\.general/)).toBeInTheDocument();
     });
 
     it('handles formData change to undefined', async () => {
@@ -2222,7 +2431,7 @@ describe('CollectionsPickerExtension', () => {
         <CollectionsPickerExtension {...props} formData={newFormData} />,
       );
 
-      expect(screen.getByText('community.general')).toBeInTheDocument();
+      expect(screen.getByText(/community\.general/)).toBeInTheDocument();
     });
   });
 
@@ -2392,7 +2601,7 @@ describe('CollectionsPickerExtension', () => {
       const props = createMockProps({ formData });
       render(<CollectionsPickerExtension {...props} />);
 
-      const chips = screen.getAllByText('community.general');
+      const chips = screen.getAllByText(/community\.general/);
       expect(chips.length).toBeGreaterThan(0);
     });
   });
@@ -2647,7 +2856,7 @@ describe('CollectionsPickerExtension', () => {
       const props = createMockProps({ formData });
       render(<CollectionsPickerExtension {...props} />);
 
-      expect(screen.getByText('community.general')).toBeInTheDocument();
+      expect(screen.getByText(/community\.general/)).toBeInTheDocument();
     });
 
     it('handles collection with only name', () => {
@@ -2656,7 +2865,7 @@ describe('CollectionsPickerExtension', () => {
       const props = createMockProps({ formData });
       render(<CollectionsPickerExtension {...props} />);
 
-      expect(screen.getByText('community.general')).toBeInTheDocument();
+      expect(screen.getByText(/community\.general/)).toBeInTheDocument();
     });
 
     it('handles collection with name and source', () => {
@@ -2667,7 +2876,7 @@ describe('CollectionsPickerExtension', () => {
       const props = createMockProps({ formData });
       render(<CollectionsPickerExtension {...props} />);
 
-      expect(screen.getByText('community.general')).toBeInTheDocument();
+      expect(screen.getByText(/community\.general/)).toBeInTheDocument();
     });
   });
 
@@ -2997,7 +3206,7 @@ describe('CollectionsPickerExtension', () => {
       );
 
       // Instead of typing, click chip to populate edit state
-      const chip = screen.getByText('community.general');
+      const chip = screen.getByText(/community\.general/);
       fireEvent.click(chip);
 
       const addButton = screen.getByRole('button', {

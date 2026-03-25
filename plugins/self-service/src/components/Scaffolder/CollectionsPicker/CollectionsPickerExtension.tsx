@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   FieldExtensionComponentProps,
   scaffolderApiRef,
@@ -20,6 +20,10 @@ import CloseIcon from '@material-ui/icons/Close';
 import { CollectionItem } from './types';
 import { useApi } from '@backstage/core-plugin-api';
 import { rhAapAuthApiRef } from '../../../apis';
+import {
+  parseSchemaDefaultCollections,
+  resolveDefaultCollectionsFromCatalog,
+} from './resolveDefaultCollections';
 
 const useStyles = makeStyles(theme => ({
   title: {
@@ -80,12 +84,28 @@ export const CollectionsPickerExtension = ({
   disabled,
   rawErrors = [],
   formData,
+  schema,
+  idSchema,
+  name,
 }: FieldExtensionComponentProps<CollectionItem[]>) => {
   const classes = useStyles();
 
-  const [collections, setCollections] = useState<CollectionItem[] | any[]>(
-    formData || [],
+  const parsedDefaults = useMemo(
+    () => parseSchemaDefaultCollections(schema),
+    [schema],
   );
+  const defaultsClearedStorageKey = useMemo(
+    () =>
+      `collections-picker-defaults-cleared:${name || idSchema?.$id || 'collections'}`,
+    [name, idSchema],
+  );
+  const defaultsAppliedRef = useRef(false);
+  const pendingCollectionsRef = useRef<CollectionItem[] | null>(null);
+
+  const [collections, setCollections] = useState<CollectionItem[]>(
+    Array.isArray(formData) ? formData : [],
+  );
+  const displayedCollections = pendingCollectionsRef.current ?? collections;
   const setEditingIndex = useState<number | null>(null)[1];
   const setFieldErrors = useState<Record<string, string>>({})[1];
 
@@ -106,6 +126,42 @@ export const CollectionsPickerExtension = ({
 
   const aapAuth = useApi(rhAapAuthApiRef);
   const scaffolderApi = useApi(scaffolderApiRef);
+
+  const areCollectionsEqual = useCallback(
+    (a: CollectionItem[], b: CollectionItem[]) =>
+      a.length === b.length &&
+      a.every(
+        (item, index) =>
+          item.name === b[index]?.name &&
+          item.source === b[index]?.source &&
+          item.version === b[index]?.version,
+      ),
+    [],
+  );
+
+  const isDefaultsCleared = useCallback((): boolean => {
+    try {
+      return sessionStorage.getItem(defaultsClearedStorageKey) === 'true';
+    } catch {
+      return false;
+    }
+  }, [defaultsClearedStorageKey]);
+
+  const setDefaultsCleared = useCallback(
+    (value: boolean) => {
+      try {
+        if (value) {
+          sessionStorage.setItem(defaultsClearedStorageKey, 'true');
+        } else {
+          sessionStorage.removeItem(defaultsClearedStorageKey);
+        }
+      } catch {
+        // no-op in environments where storage is unavailable
+      }
+    },
+    [defaultsClearedStorageKey],
+  );
+
   // Fetch collections for autocomplete
   const fetchCollections = useCallback(async () => {
     try {
@@ -230,10 +286,73 @@ export const CollectionsPickerExtension = ({
     [aapAuth, scaffolderApi, availableCollections],
   );
   useEffect(() => {
-    if (formData !== undefined) {
-      setCollections(formData);
+    if (!Array.isArray(formData)) {
+      return;
     }
-  }, [formData]);
+
+    if (isDefaultsCleared() && parsedDefaults.length > 0 && formData.length > 0) {
+      const defaultNames = new Set(parsedDefaults.map(item => item.name));
+      const hasOnlyDefaultCollections = formData.every(item =>
+        defaultNames.has(item.name),
+      );
+
+      if (hasOnlyDefaultCollections) {
+        pendingCollectionsRef.current = [];
+        setCollections([]);
+        return;
+      }
+    }
+
+    setCollections(formData);
+
+    if (
+      pendingCollectionsRef.current &&
+      areCollectionsEqual(formData, pendingCollectionsRef.current)
+    ) {
+      pendingCollectionsRef.current = null;
+    }
+  }, [formData, areCollectionsEqual, isDefaultsCleared, parsedDefaults]);
+
+  useEffect(() => {
+    // RJSF often passes [] instead of undefined for empty array fields; still apply
+    // schema defaults from catalog when there is no user/schema-filled content yet.
+    if (formData !== undefined && formData.length > 0) {
+      return;
+    }
+    if (defaultsAppliedRef.current) {
+      return;
+    }
+    if (isDefaultsCleared()) {
+      defaultsAppliedRef.current = true;
+      return;
+    }
+    if (!parsedDefaults.length) {
+      return;
+    }
+    if (!availableCollections.length) {
+      return;
+    }
+    const resolved = resolveDefaultCollectionsFromCatalog(
+      parsedDefaults,
+      availableCollections,
+    );
+    if (resolved.length === 0) {
+      defaultsAppliedRef.current = true;
+      return;
+    }
+    defaultsAppliedRef.current = true;
+    setDefaultsCleared(false);
+    pendingCollectionsRef.current = resolved;
+    setCollections(resolved);
+    onChange(resolved);
+  }, [
+    formData,
+    parsedDefaults,
+    availableCollections,
+    isDefaultsCleared,
+    setDefaultsCleared,
+    onChange,
+  ]);
 
   // Load collections on mount
   useEffect(() => {
@@ -280,20 +399,22 @@ export const CollectionsPickerExtension = ({
     }
 
     // Check if collection already exists
-    const existingIndex = collections?.findIndex(
+    const existingIndex = displayedCollections.findIndex(
       c => c.name === collectionToAdd.name,
     );
 
     let updatedCollections: CollectionItem[];
 
     if (existingIndex === -1) {
-      updatedCollections = [...collections, collectionToAdd];
+      updatedCollections = [...displayedCollections, collectionToAdd];
     } else {
-      updatedCollections = [...collections];
+      updatedCollections = [...displayedCollections];
       updatedCollections[existingIndex] = collectionToAdd;
     }
 
+    pendingCollectionsRef.current = updatedCollections;
     setCollections(updatedCollections);
+    setDefaultsCleared(false);
     onChange(updatedCollections);
 
     setSelectedCollection(null);
@@ -304,13 +425,15 @@ export const CollectionsPickerExtension = ({
   };
 
   const handleRemoveCollection = (index: number) => {
-    const updatedCollections = collections.filter((_, i) => i !== index);
+    const updatedCollections = displayedCollections.filter((_, i) => i !== index);
+    pendingCollectionsRef.current = updatedCollections;
     setCollections(updatedCollections);
+    setDefaultsCleared(updatedCollections.length === 0 && parsedDefaults.length > 0);
     onChange(updatedCollections);
   };
 
   const handleEditCollection = (index: number) => {
-    const collection = collections[index];
+    const collection = displayedCollections[index];
     setSelectedCollection(collection.name || null);
     setSelectedSource(collection.source || null);
     setSelectedVersion(collection.version || null);
@@ -474,13 +597,13 @@ export const CollectionsPickerExtension = ({
       </Card>
 
       {/* Selected Collections Section */}
-      {collections.length > 0 && (
+      {displayedCollections.length > 0 && (
         <Box className={classes.selectedCollectionsSection}>
           <Typography className={classes.selectedCollectionsTitle}>
-            Selected collections ({collections.length})
+            Selected collections ({displayedCollections.length})
           </Typography>
           <Box className={classes.collectionsList}>
-            {collections.map((collection, index) => {
+            {displayedCollections.map((collection, index) => {
               const displayLabel = collection.name || 'Unnamed';
               const chipKey = `${collection.name || 'unnamed'}-${index}`;
               return (
