@@ -290,7 +290,11 @@ export const CollectionsPickerExtension = ({
       return;
     }
 
-    if (isDefaultsCleared() && parsedDefaults.length > 0 && formData.length > 0) {
+    if (
+      isDefaultsCleared() &&
+      parsedDefaults.length > 0 &&
+      formData.length > 0
+    ) {
       const defaultNames = new Set(parsedDefaults.map(item => item.name));
       const hasOnlyDefaultCollections = formData.every(item =>
         defaultNames.has(item.name),
@@ -425,10 +429,14 @@ export const CollectionsPickerExtension = ({
   };
 
   const handleRemoveCollection = (index: number) => {
-    const updatedCollections = displayedCollections.filter((_, i) => i !== index);
+    const updatedCollections = displayedCollections.filter(
+      (_, i) => i !== index,
+    );
     pendingCollectionsRef.current = updatedCollections;
     setCollections(updatedCollections);
-    setDefaultsCleared(updatedCollections.length === 0 && parsedDefaults.length > 0);
+    setDefaultsCleared(
+      updatedCollections.length === 0 && parsedDefaults.length > 0,
+    );
     onChange(updatedCollections);
   };
 

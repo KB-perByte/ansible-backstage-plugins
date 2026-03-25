@@ -46,7 +46,9 @@ export function parseSchemaDefaultCollections(
   const raw = schema?.default;
   if (!Array.isArray(raw)) return [];
   return raw
-    .filter((x): x is Record<string, unknown> => x !== null && typeof x === 'object')
+    .filter(
+      (x): x is Record<string, unknown> => x !== null && typeof x === 'object',
+    )
     .map(r => {
       const name = String(r.name ?? '').trim();
       const item: CollectionItem = { name };
@@ -81,9 +83,7 @@ export function resolveDefaultCollectionsFromCatalog(
 
   for (const item of defaults) {
     if (!item.name?.trim()) continue;
-    const entry = catalog.find(
-      c => normalize(c.name) === normalize(item.name),
-    );
+    const entry = catalog.find(c => normalize(c.name) === normalize(item.name));
     if (!entry) continue;
 
     const hasSource = !!item.source?.trim();

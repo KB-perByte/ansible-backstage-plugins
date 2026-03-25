@@ -253,7 +253,9 @@ describe('CollectionsPickerExtension', () => {
       });
 
       expect(onChange).not.toHaveBeenCalled();
-      expect(screen.queryByText(/Selected collections/)).not.toBeInTheDocument();
+      expect(
+        screen.queryByText(/Selected collections/),
+      ).not.toBeInTheDocument();
     });
 
     it('removes a default chip in one click', async () => {
