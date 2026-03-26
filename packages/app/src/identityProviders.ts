@@ -16,19 +16,11 @@
 
 import { rhAapAuthApiRef } from '@ansible/plugin-backstage-self-service';
 
-import { githubAuthApiRef } from '@backstage/core-plugin-api';
-
 export const providers = [
   {
-    id: 'github-auth-provider',
-    title: 'GitHub',
-    message: 'Sign In using GitHub',
-    apiRef: githubAuthApiRef,
-  },
-  {
     id: 'rhaap-auth-provider',
-    title: 'RH AAP',
-    message: 'Sign in using RH AAP',
+    title: 'Ansible Automation Platform',
+    message: 'Sign in using AAP',
     apiRef: rhAapAuthApiRef,
   },
 ];

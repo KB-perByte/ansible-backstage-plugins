@@ -75,6 +75,8 @@ auth:
   omitIdentityTokenOwnershipClaim: true
   environment: development
   providers:
+    local-admin:
+      development: {}
     github:
       development:
         clientId: <changeme>
@@ -189,6 +191,11 @@ ansible:
     port: '8000'
   feedback:
     enabled: false
+  portal:
+    onboarding:
+      enabled: false  # Set to true for greenfield deployments (RHEL appliance, new OpenShift)
+    admin:
+      password: <changeme>  # Local admin password for setup wizard used for local development.
 kubernetes: null
 
 permission:
@@ -210,3 +217,4 @@ permission:
       - catalog
       - scaffolder
       - permission
+      - rhaap-backend

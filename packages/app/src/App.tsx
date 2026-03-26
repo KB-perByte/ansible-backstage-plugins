@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Navigate, Route } from 'react-router-dom';
 import { apiDocsPlugin, ApiExplorerPage } from '@backstage/plugin-api-docs';
 import {
@@ -28,17 +29,13 @@ import { Root } from './components/Root';
 import { GlobalHeader } from './components/GlobalHeader';
 import { getThemes } from '@red-hat-developer-hub/backstage-plugin-theme';
 
-import {
-  AlertDisplay,
-  OAuthRequestDialog,
-  SignInPage,
-} from '@backstage/core-components';
+import { AlertDisplay, OAuthRequestDialog } from '@backstage/core-components';
+import { SignInPage } from '@ansible/plugin-backstage-self-service';
 import { createApp } from '@backstage/app-defaults';
 import { AppRouter, FlatRoutes } from '@backstage/core-app-api';
 import { CatalogGraphPage } from '@backstage/plugin-catalog-graph';
 import { RequirePermission } from '@backstage/plugin-permission-react';
 import { catalogEntityCreatePermission } from '@backstage/plugin-catalog-common/alpha';
-import { providers } from './identityProviders';
 import { AnsiblePage } from '@ansible/plugin-backstage-rhaap';
 import { DelayingComponentFieldExtension } from './components/scaffolder/customScaffolderExtensions';
 import {
@@ -75,22 +72,42 @@ const app = createApp({
     });
   },
   components: {
-    SignInPage: props => (
-      <SignInPage
-        {...props}
-        align="center"
-        title="Select a sign-in method"
-        auto
-        providers={['guest', ...providers]}
-      />
-    ),
+    SignInPage: props => <SignInPage {...props} />,
   },
   themes: getThemes(),
 });
 
+/**
+ * Smart root redirect: checks setup status and redirects to setup wizard
+ * if onboarding is enabled and not complete, otherwise to catalog.
+ */
+function RootRedirect() {
+  const [target, setTarget] = useState<string | null>(null);
+
+  useEffect(() => {
+    const baseUrl =
+      window.location.port === '3000'
+        ? 'http://localhost:7007'
+        : '';
+    fetch(`${baseUrl}/api/rhaap-backend/setup/status`)
+      .then(res => res.json())
+      .then(data => {
+        if (data?.data?.onboardingEnabled && !data?.data?.setupComplete) {
+          setTarget('/self-service/setup');
+        } else {
+          setTarget('/self-service/catalog');
+        }
+      })
+      .catch(() => setTarget('/self-service/catalog'));
+  }, []);
+
+  if (!target) return null;
+  return <Navigate to={target} replace />;
+}
+
 const routes = (
   <FlatRoutes>
-    <Route path="/" element={<Navigate to="catalog" />} />
+    <Route path="/" element={<RootRedirect />} />
     <Route path="/catalog" element={<CatalogIndexPage />} />
     <Route
       path="/catalog/:namespace/:kind/:name"

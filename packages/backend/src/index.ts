@@ -7,8 +7,13 @@
  */
 
 import { createBackend } from '@backstage/backend-defaults';
+import { createRootConfigWithDatabaseSource } from '@ansible/backstage-rhaap-backend';
 
 const backend = createBackend();
+
+// Override rootConfig to merge DB-stored config with static app-config.yaml.
+// DB values override static config — enables setup wizard to configure auth providers.
+backend.add(createRootConfigWithDatabaseSource());
 
 backend.add(import('@backstage/plugin-app-backend'));
 backend.add(import('@backstage/plugin-proxy-backend'));
@@ -17,16 +22,11 @@ backend.add(import('@backstage/plugin-scaffolder-backend-module-github'));
 backend.add(import('@backstage/plugin-scaffolder-backend-module-gitlab'));
 backend.add(import('@backstage/plugin-techdocs-backend'));
 
-// auth plugin
+// auth plugin — RHAAP provider with integrated local-admin for setup/recovery
 backend.add(import('@backstage/plugin-auth-backend'));
-backend.add(import('./authModuleGithubProvider'));
 backend.add(
   import('@ansible/backstage-plugin-auth-backend-module-rhaap-provider'),
 );
-// backend.add(import('@backstage/plugin-auth-backend-module-github-provider'));
-// See https://backstage.io/docs/backend-system/building-backends/migrating#the-auth-plugin
-backend.add(import('@backstage/plugin-auth-backend-module-guest-provider'));
-// See https://backstage.io/docs/auth/guest/provider
 
 // catalog plugin
 backend.add(import('@backstage/plugin-catalog-backend'));
@@ -63,4 +63,8 @@ backend.add(import('@ansible/backstage-plugin-catalog-backend-module-rhaap'));
 backend.add(
   import('@ansible/plugin-scaffolder-backend-module-backstage-rhaap'),
 );
+
+// portal admin backend — setup wizard, connections, config management
+backend.add(import('@ansible/backstage-rhaap-backend'));
+
 backend.start();

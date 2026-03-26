@@ -1,0 +1,22 @@
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: portal-admin-api
+  title: Portal Admin API
+  description: |
+    Setup and administration API for the Ansible Self-Service Automation Portal.
+    Provides day-0 setup wizard support, connection management, and admin settings.
+    All mutations are idempotent and safe for automation via config-as-code.
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+  tags:
+    - ansible
+    - portal
+    - admin
+    - setup
+spec:
+  type: openapi
+  lifecycle: production
+  owner: ansible-team
+  definition:
+    $text: ./src/schema/openapi.yaml

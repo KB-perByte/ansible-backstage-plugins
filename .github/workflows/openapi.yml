@@ -1,0 +1,101 @@
+name: OpenAPI Spec Validation
+
+on:
+  pull_request:
+    paths:
+      - 'plugins/backstage-rhaap-backend/src/schema/**'
+      - 'plugins/backstage-rhaap-backend/src/router.ts'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-openapi:
+    name: Validate OpenAPI Specification
+    runs-on: ubuntu-latest
+    if: ${{ !startsWith(github.head_ref, 'patchback/backports/') }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install redocly CLI
+        run: npm install -g @redocly/cli
+
+      - name: Lint OpenAPI spec
+        run: |
+          redocly lint plugins/backstage-rhaap-backend/src/schema/openapi.yaml \
+            --skip-rule no-unused-components \
+            --skip-rule operation-operationId-unique
+
+      - name: Validate spec structure
+        run: |
+          # Verify all required fields are present
+          node -e "
+            const yaml = require('yaml');
+            const fs = require('fs');
+            const spec = yaml.parse(fs.readFileSync('plugins/backstage-rhaap-backend/src/schema/openapi.yaml', 'utf8'));
+
+            // Check version
+            if (spec.openapi !== '3.1.0') {
+              console.error('Expected OpenAPI 3.1.0, got:', spec.openapi);
+              process.exit(1);
+            }
+
+            // Check all paths have operationId
+            for (const [path, methods] of Object.entries(spec.paths)) {
+              for (const [method, op] of Object.entries(methods)) {
+                if (['get','post','put','delete','patch'].includes(method)) {
+                  if (!op.operationId) {
+                    console.error('Missing operationId:', method.toUpperCase(), path);
+                    process.exit(1);
+                  }
+                }
+              }
+            }
+
+            console.log('OpenAPI spec validation passed');
+            console.log('Paths:', Object.keys(spec.paths).length);
+            console.log('Operations:', Object.values(spec.paths).reduce((n, methods) =>
+              n + Object.keys(methods).filter(m => ['get','post','put','delete','patch'].includes(m)).length, 0));
+          "
+
+  detect-breaking-changes:
+    name: Detect Breaking API Changes
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+
+      - name: Checkout base branch spec
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+
+      - name: Install oasdiff
+        run: |
+          curl -sSL https://raw.githubusercontent.com/Tufin/oasdiff/main/install.sh | sh
+
+      - name: Check for breaking changes
+        run: |
+          BASE_SPEC="base/plugins/backstage-rhaap-backend/src/schema/openapi.yaml"
+          HEAD_SPEC="plugins/backstage-rhaap-backend/src/schema/openapi.yaml"
+
+          if [ -f "$BASE_SPEC" ]; then
+            oasdiff breaking "$BASE_SPEC" "$HEAD_SPEC" --fail-on ERR || {
+              echo "::warning::Breaking API changes detected. Ensure these are intentional and documented."
+              exit 0  # Warning, not failure — reviewer decides
+            }
+          else
+            echo "No base spec found (new API) — skipping breaking change detection"
+          fi

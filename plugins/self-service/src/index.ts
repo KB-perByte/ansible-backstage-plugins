@@ -15,3 +15,10 @@ export { EEFileNamePickerFieldExtension } from './components/Scaffolder/EEFileNa
 export { EETagsPickerFieldExtension } from './components/Scaffolder/EETagsPicker/extensions';
 
 export * from './apis';
+
+// Admin / Setup exports
+// Note: SetupWizard, GeneralPage, ConnectionsPage, RBACPage are lazy-loaded
+// in RouteView.tsx and exported via plugin.ts extensions. They are NOT
+// re-exported here to avoid pulling in heavy dependencies (backstage-rhaap-common
+// → AAPClient → undici) which breaks test environments lacking TextEncoder.
+export { SetupGate } from './components/SetupGate';

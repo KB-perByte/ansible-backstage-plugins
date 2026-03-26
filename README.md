@@ -220,7 +220,7 @@ auth:
 #### Start the Development Server
 
 ```bash
-yarn start
+PORTAL_ADMIN_PASSWORD=admin123 yarn start
 ```
 
 This will:
@@ -230,11 +230,18 @@ This will:
 - Enable hot module reloading for development
 - Open your browser automatically
 
+To reset to setup mode (re-run the setup wizard):
+
+```bash
+rm -rf packages/backend/portal-dev-db && PORTAL_ADMIN_PASSWORD=admin123 yarn start
+```
+
 #### What to Expect
 
 1. **First Launch**: Initial compilation takes 2-3 minutes
 2. **Browser Opens**: Navigate to `http://localhost:3000`
-3. **Login**: Use Guest login or configured auth provider
+3. **Setup Wizard**: If onboarding is enabled, you'll be auto-logged in and redirected to the setup wizard
+4. **Login**: After setup, use AAP OAuth to sign in
 4. **Hot Reload**: Changes to source files automatically reload
 
 #### Startup Logs

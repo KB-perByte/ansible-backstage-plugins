@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 /**
@@ -11,13 +11,42 @@ import { useLocation, useNavigate } from 'react-router-dom';
  *
  * By redirecting /create and /create/* paths, we ensure users can only see
  * templates they have access to in Ansible Automation Platform.
+ *
+ * Also handles setup wizard redirect: when onboarding is enabled and setup
+ * is not complete, redirects to /self-service/setup from any route.
  */
 export const LocationListener = () => {
   const { pathname } = useLocation();
   const navigate = useNavigate();
+  const setupChecked = useRef(false);
+
+  // Check setup status once on mount and redirect if needed
+  useEffect(() => {
+    if (setupChecked.current) return undefined;
+    if (pathname.includes('/setup')) return undefined;
+
+    setupChecked.current = true;
+
+    const baseUrl =
+      window.location.port === '3000'
+        ? 'http://localhost:7007'
+        : '';
+    fetch(`${baseUrl}/api/rhaap-backend/setup/status`)
+      .then(res => res.json())
+      .then(data => {
+        if (data?.data?.onboardingEnabled && !data?.data?.setupComplete) {
+          navigate('/self-service/setup', { replace: true });
+        }
+      })
+      .catch(() => {
+        // Backend not available — skip redirect
+      });
+
+    return undefined;
+  }, [navigate, pathname]);
 
   useEffect(() => {
-    // Redirect root to self-service catalog
+    // Redirect root to self-service catalog (unless setup redirect is pending)
     if (pathname === '/') {
       navigate('/self-service/catalog', { replace: true });
       return undefined;

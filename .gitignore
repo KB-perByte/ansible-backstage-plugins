@@ -1,6 +1,10 @@
 # macOS
 .DS_Store
 
+# Local dev SQLite databases
+portal-dev-db/
+*.sqlite
+
 # Logs
 logs
 *.log

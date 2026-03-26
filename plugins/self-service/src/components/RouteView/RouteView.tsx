@@ -1,7 +1,10 @@
+import { lazy, Suspense } from 'react';
 import { Route, Routes, Navigate } from 'react-router-dom';
 import { RequirePermission } from '@backstage/plugin-permission-react';
 import { catalogEntityCreatePermission } from '@backstage/plugin-catalog-common/alpha';
 import { taskReadPermission } from '@backstage/plugin-scaffolder-common/alpha';
+import { portalAdminViewPermission } from '../../hooks/adminPermissions';
+import { Progress } from '@backstage/core-components';
 
 import { HomeComponent } from '../Home';
 import { CatalogImport } from '../CatalogImport';
@@ -14,6 +17,22 @@ import { EETabs } from '../ExecutionEnvironments';
 import { EEDetailsPage } from '../ExecutionEnvironments/catalog/EEDetailsPage';
 import { CollectionsCatalogPage } from '../CollectionsCatalog';
 import { CollectionDetailsPage } from '../CollectionsCatalog/CollectionDetailsPage';
+
+// Lazy-loaded admin components to avoid bloating the main bundle
+const SetupWizard = lazy(() =>
+  import('../SetupWizard').then(m => ({ default: m.SetupWizard })),
+);
+const GeneralPage = lazy(() =>
+  import('../AdminPages/GeneralPage').then(m => ({ default: m.GeneralPage })),
+);
+const ConnectionsPage = lazy(() =>
+  import('../AdminPages/ConnectionsPage').then(m => ({
+    default: m.ConnectionsPage,
+  })),
+);
+const RBACPage = lazy(() =>
+  import('../AdminPages/RBACPage').then(m => ({ default: m.RBACPage })),
+);
 
 export const RouteView = () => {
   return (
@@ -72,6 +91,49 @@ export const RouteView = () => {
           path="collections/:collectionName"
           element={<CollectionDetailsPage />}
         />
+
+        {/* Setup wizard */}
+        <Route
+          path="setup"
+          element={
+            <Suspense fallback={<Progress />}>
+              <SetupWizard />
+            </Suspense>
+          }
+        />
+
+        {/* Admin pages — permission-gated */}
+        <Route
+          path="admin/general"
+          element={
+            <RequirePermission permission={portalAdminViewPermission}>
+              <Suspense fallback={<Progress />}>
+                <GeneralPage />
+              </Suspense>
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="admin/connections"
+          element={
+            <RequirePermission permission={portalAdminViewPermission}>
+              <Suspense fallback={<Progress />}>
+                <ConnectionsPage />
+              </Suspense>
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="admin/rbac"
+          element={
+            <RequirePermission permission={portalAdminViewPermission}>
+              <Suspense fallback={<Progress />}>
+                <RBACPage />
+              </Suspense>
+            </RequirePermission>
+          }
+        />
+
         {/* Default redirects */}
         <Route
           path="/catalog/*"

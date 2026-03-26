@@ -1,0 +1,636 @@
+openapi: 3.1.0
+info:
+  title: Ansible Self-Service Portal Admin API
+  description: |
+    Setup and administration API for the Ansible Self-Service Automation Portal.
+    Provides day-0 setup wizard support, connection management, and admin settings.
+    All mutations are idempotent and safe for automation via config-as-code.
+  version: 2.1.1
+  contact:
+    name: Ansible Team
+    url: https://github.com/ansible/ansible-backstage-plugins
+
+servers:
+  - url: /api/rhaap-backend
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Backstage Token
+
+  schemas:
+    SuccessResponse:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+          const: true
+        data:
+          type: object
+
+    ErrorResponse:
+      type: object
+      required: [success, error]
+      properties:
+        success:
+          type: boolean
+          const: false
+        error:
+          type: string
+
+    SetupStatus:
+      type: object
+      required: [onboardingEnabled, setupComplete, localAdminEnabled, deploymentMode]
+      properties:
+        onboardingEnabled:
+          type: boolean
+          description: Whether the setup wizard is enabled (from app-config.yaml)
+        setupComplete:
+          type: boolean
+          description: Whether the setup wizard has been completed
+        localAdminEnabled:
+          type: boolean
+          description: Whether local admin bootstrap login is enabled
+        deploymentMode:
+          type: string
+          enum: [openshift, rhel, local]
+          description: Auto-detected deployment environment
+
+    AAPConfig:
+      type: object
+      required: [controllerUrl, adminToken, clientId, clientSecret]
+      properties:
+        controllerUrl:
+          type: string
+          format: uri
+          description: AAP Controller URL (e.g. https://aap.example.com)
+          x-ai-hint: The base URL of the Ansible Automation Platform controller instance
+        adminToken:
+          type: string
+          description: AAP Personal Access Token with System Administrator privileges
+          x-ai-hint: A service token for content discovery and job execution
+        clientId:
+          type: string
+          description: OAuth Client ID from AAP application settings
+        clientSecret:
+          type: string
+          description: OAuth Client Secret from AAP application settings
+        checkSSL:
+          type: boolean
+          default: true
+          description: Whether to verify SSL certificates when connecting to AAP
+
+    RegistriesConfig:
+      type: object
+      required: [pahEnabled, pahInheritAap, certifiedContent, validatedContent, galaxyEnabled]
+      properties:
+        pahEnabled:
+          type: boolean
+          description: Enable Private Automation Hub content discovery
+        pahInheritAap:
+          type: boolean
+          description: Inherit PAH URL and credentials from AAP connection
+        pahUrl:
+          type: string
+          format: uri
+          description: Standalone PAH URL (required if pahEnabled and not inheriting from AAP)
+        pahToken:
+          type: string
+          description: Standalone PAH token (required if pahEnabled and not inheriting from AAP)
+        certifiedContent:
+          type: boolean
+          description: Enable Red Hat Certified Content from public Automation Hub
+        validatedContent:
+          type: boolean
+          description: Enable Red Hat Validated Content from public Automation Hub
+        galaxyEnabled:
+          type: boolean
+          description: Enable community content from Ansible Galaxy
+
+    SCMConfig:
+      type: object
+      required: [providerUrl, token]
+      properties:
+        providerUrl:
+          type: string
+          format: uri
+          description: SCM provider URL (e.g. https://github.com)
+          x-ai-hint: The base URL of the Git hosting provider
+        token:
+          type: string
+          description: Service account Personal Access Token for content discovery
+          x-ai-hint: A PAT with read access to discover Ansible content in repositories
+        targetOrgs:
+          type: string
+          description: Comma-separated list of organizations to scan
+        eeFilename:
+          type: string
+          default: execution-environment.yml
+          description: Filename used to identify Execution Environment projects
+        branches:
+          type: string
+          default: main
+          description: Comma-separated branches or tags to scan
+        maxDepth:
+          type: integer
+          minimum: 1
+          description: Maximum directory depth for content discovery crawling
+        oauthClientId:
+          type: string
+          description: OAuth Client ID for user SSO login via this SCM provider
+        oauthClientSecret:
+          type: string
+          description: OAuth Client Secret for user SSO login
+
+    BatchSetupConfig:
+      type: object
+      required: [aap]
+      properties:
+        aap:
+          $ref: '#/components/schemas/AAPConfig'
+        registries:
+          $ref: '#/components/schemas/RegistriesConfig'
+        scm:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/SCMConfig'
+          description: 'SCM providers keyed by ID (e.g. {"github": {...}, "gitlab": {...}})'
+        apply:
+          type: boolean
+          default: false
+          description: If true, also marks setup as complete and triggers restart
+
+    AAPConnectionInfo:
+      type: object
+      properties:
+        controllerUrl:
+          type: string
+        hasAdminToken:
+          type: boolean
+        clientId:
+          type: string
+        hasClientSecret:
+          type: boolean
+        checkSSL:
+          type: boolean
+        status:
+          $ref: '#/components/schemas/ConnectionStatus'
+
+    RegistriesConnectionInfo:
+      type: object
+      properties:
+        pahEnabled:
+          type: boolean
+        pahInheritAap:
+          type: boolean
+        pahUrl:
+          type: string
+        hasPahToken:
+          type: boolean
+        certifiedContent:
+          type: boolean
+        validatedContent:
+          type: boolean
+        galaxyEnabled:
+          type: boolean
+
+    SCMConnectionInfo:
+      type: object
+      properties:
+        configured:
+          type: boolean
+        providerUrl:
+          type: string
+        hasToken:
+          type: boolean
+        targetOrgs:
+          type: string
+        eeFilename:
+          type: string
+        branches:
+          type: string
+        maxDepth:
+          type: integer
+        hasSsoConfigured:
+          type: boolean
+        status:
+          $ref: '#/components/schemas/ConnectionStatus'
+
+    ConnectionStatus:
+      type: object
+      properties:
+        configured:
+          type: boolean
+        contentDiscovery:
+          type: string
+          enum: [active, inactive]
+        sso:
+          type: string
+          enum: [active, inactive]
+
+    ConnectionsResponse:
+      type: object
+      properties:
+        aap:
+          $ref: '#/components/schemas/AAPConnectionInfo'
+        registries:
+          $ref: '#/components/schemas/RegistriesConnectionInfo'
+        scm:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/SCMConnectionInfo'
+
+    ApplyResult:
+      type: object
+      properties:
+        restartTriggered:
+          type: boolean
+        deploymentMode:
+          type: string
+          enum: [openshift, rhel, local]
+
+    LocalAdminInput:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+          description: Whether to enable local admin bootstrap login
+
+  parameters:
+    SCMProvider:
+      name: provider
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [github, gitlab]
+      description: SCM provider identifier
+
+    SyncType:
+      name: type
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [aap, pah, github, gitlab]
+      description: Connection type to sync
+
+paths:
+  /setup/status:
+    get:
+      operationId: getSetupStatus
+      summary: Get portal setup status
+      description: Returns whether onboarding is enabled, setup is complete, and deployment mode. This endpoint is public (no auth required).
+      x-ai-hint: Check this first to determine if the portal needs initial configuration.
+      security: []
+      responses:
+        '200':
+          description: Setup status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/SetupStatus'
+
+  /setup/aap:
+    post:
+      operationId: configureAAP
+      summary: Configure AAP connection
+      description: Save Ansible Automation Platform connection details including OAuth credentials and admin token.
+      x-ai-hint: Configure the primary AAP controller connection. Required before applying setup.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AAPConfig'
+      responses:
+        '200':
+          description: AAP configuration saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /setup/registries:
+    post:
+      operationId: configureRegistries
+      summary: Configure content registries
+      description: Configure Private Automation Hub, Red Hat Certified/Validated content, and Ansible Galaxy toggles.
+      x-ai-hint: Configure which content sources the portal should discover automation content from.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegistriesConfig'
+      responses:
+        '200':
+          description: Registries configuration saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /setup/scm/{provider}:
+    post:
+      operationId: configureSCM
+      summary: Configure SCM provider
+      description: Configure a source control provider (GitHub or GitLab) for content discovery and optional user SSO.
+      x-ai-hint: Connect a Git hosting provider for discovering Ansible content and enabling user authentication.
+      parameters:
+        - $ref: '#/components/parameters/SCMProvider'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SCMConfig'
+      responses:
+        '200':
+          description: SCM configuration saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      operationId: deleteSCM
+      summary: Remove SCM provider configuration
+      description: Delete all stored configuration for the specified SCM provider.
+      parameters:
+        - $ref: '#/components/parameters/SCMProvider'
+      responses:
+        '200':
+          description: SCM configuration deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /setup/apply:
+    post:
+      operationId: applySetup
+      summary: Apply setup and trigger restart
+      description: |
+        Mark setup as complete, disable local admin, and trigger a deployment-appropriate restart.
+        On OpenShift: K8s rollout restart. On RHEL: graceful exit + systemd restart. On local: manual restart required.
+      x-ai-hint: Call this after configuring AAP (required) and optionally registries/SCM. Triggers service restart.
+      responses:
+        '200':
+          description: Setup applied
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/ApplyResult'
+        '400':
+          description: AAP configuration required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /setup/batch:
+    post:
+      operationId: batchSetup
+      summary: Configure everything in one call
+      description: |
+        Atomic batch setup — accepts all configuration in a single request.
+        If any section fails validation, nothing is saved. Ideal for config-as-code and AI agent automation.
+      x-ai-hint: Use this for automated provisioning. Provide all config in one call. Set apply=true to also finalize setup.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchSetupConfig'
+      responses:
+        '200':
+          description: Batch setup completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      applied:
+                        type: boolean
+        '400':
+          description: Validation errors
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /connections:
+    get:
+      operationId: getConnections
+      summary: Get all connection details
+      description: Returns current configuration for all connections. Secrets are masked (never returned in plaintext).
+      x-ai-hint: Use this to check the current state of all portal connections.
+      responses:
+        '200':
+          description: Connection details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/ConnectionsResponse'
+
+  /connections/aap:
+    put:
+      operationId: updateAAPConnection
+      summary: Update AAP connection
+      description: Update AAP connection details. Requires restart to take effect for auth providers.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AAPConfig'
+      responses:
+        '200':
+          description: AAP connection updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      restartRequired:
+                        type: boolean
+
+  /connections/registries:
+    put:
+      operationId: updateRegistries
+      summary: Update registry configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegistriesConfig'
+      responses:
+        '200':
+          description: Registries updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /connections/scm/{provider}:
+    put:
+      operationId: updateSCMConnection
+      summary: Update SCM provider connection
+      parameters:
+        - $ref: '#/components/parameters/SCMProvider'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SCMConfig'
+      responses:
+        '200':
+          description: SCM connection updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      restartRequired:
+                        type: boolean
+    delete:
+      operationId: deleteSCMConnection
+      summary: Remove SCM provider connection
+      parameters:
+        - $ref: '#/components/parameters/SCMProvider'
+      responses:
+        '200':
+          description: SCM connection removed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      restartRequired:
+                        type: boolean
+
+  /general/local-admin:
+    put:
+      operationId: setLocalAdmin
+      summary: Toggle local admin access
+      description: Enable or disable the local admin bootstrap login for emergency recovery.
+      x-ai-hint: Enable this to allow local admin login when AAP SSO is unavailable.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LocalAdminInput'
+      responses:
+        '200':
+          description: Local admin setting updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /connections/{type}/sync:
+    post:
+      operationId: triggerSync
+      summary: Trigger manual sync for a connection
+      description: Triggers an immediate content sync for the specified connection type.
+      x-ai-hint: Force a sync to discover new content from the specified provider.
+      parameters:
+        - $ref: '#/components/parameters/SyncType'
+      responses:
+        '200':
+          description: Sync triggered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      message:
+                        type: string
+
+  /openapi.json:
+    get:
+      operationId: getOpenApiSpec
+      summary: Get OpenAPI specification
+      description: Returns this OpenAPI spec as JSON for runtime discovery.
+      security: []
+      responses:
+        '200':
+          description: OpenAPI specification
+          content:
+            application/json:
+              schema:
+                type: object

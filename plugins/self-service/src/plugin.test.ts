@@ -6,15 +6,21 @@ const mockAapAuthApi = { api: 'AapAuthApi' } as unknown as ApiFactory<
   any,
   any
 >;
+const mockPortalAdminApis = {
+  api: 'PortalAdminApis',
+} as unknown as ApiFactory<any, any, any>;
 const mockRootRouteRef = { id: 'root-route-ref' };
+const mockSetupRouteRef = { id: 'setup-route-ref' };
 
 // Mocks for local files (applied before module import)
 jest.mock('./apis', () => ({
   AAPApis: mockAAPApis,
   AapAuthApi: mockAapAuthApi,
+  PortalAdminApis: mockPortalAdminApis,
 }));
 jest.mock('./routes', () => ({
   rootRouteRef: mockRootRouteRef,
+  setupRouteRef: mockSetupRouteRef,
 }));
 
 describe('self-service plugin module', () => {
@@ -22,7 +28,9 @@ describe('self-service plugin module', () => {
   let createRoutableExtensionMock: jest.Mock;
   let createComponentExtensionMock: jest.Mock;
   let SelfServicePage: any;
+  let SetupWizardPage: any;
   let LocationListener: any;
+  let SetupGate: any;
 
   beforeEach(() => {
     jest.resetModules();
@@ -50,7 +58,9 @@ describe('self-service plugin module', () => {
     jest.isolateModules(() => {
       const mod = require('./plugin');
       SelfServicePage = mod.SelfServicePage;
+      SetupWizardPage = mod.SetupWizardPage;
       LocationListener = mod.LocationListener;
+      SetupGate = mod.SetupGate;
     });
   });
   afterEach(() => {
@@ -73,7 +83,7 @@ describe('self-service plugin module', () => {
   });
 
   it('exports SelfServicePage as the value returned by createRoutableExtension', () => {
-    expect(createRoutableExtensionMock).toHaveBeenCalledTimes(1);
+    expect(createRoutableExtensionMock).toHaveBeenCalledTimes(2);
     const created = createRoutableExtensionMock.mock.results[0].value;
     expect(SelfServicePage).toBe(created);
     const calledWith = createRoutableExtensionMock.mock.calls[0][0];
@@ -81,12 +91,29 @@ describe('self-service plugin module', () => {
     expect(calledWith).toHaveProperty('mountPoint', mockRootRouteRef);
   });
 
+  it('exports SetupWizardPage as the value returned by createRoutableExtension', () => {
+    const created = createRoutableExtensionMock.mock.results[1].value;
+    expect(SetupWizardPage).toBe(created);
+    const calledWith = createRoutableExtensionMock.mock.calls[1][0];
+    expect(calledWith).toHaveProperty('name', 'SetupWizardPage');
+    expect(calledWith).toHaveProperty('mountPoint', mockSetupRouteRef);
+  });
+
   it('exports LocationListener as the value returned by createComponentExtension', () => {
-    expect(createComponentExtensionMock).toHaveBeenCalledTimes(1);
+    expect(createComponentExtensionMock).toHaveBeenCalledTimes(2);
     const created = createComponentExtensionMock.mock.results[0].value;
     expect(LocationListener).toBe(created);
     const calledWith = createComponentExtensionMock.mock.calls[0][0];
     expect(calledWith).toHaveProperty('name', 'LocationListener');
+    expect(calledWith.component).toHaveProperty('lazy');
+    expect(typeof calledWith.component.lazy).toBe('function');
+  });
+
+  it('exports SetupGate as the value returned by createComponentExtension', () => {
+    const created = createComponentExtensionMock.mock.results[1].value;
+    expect(SetupGate).toBe(created);
+    const calledWith = createComponentExtensionMock.mock.calls[1][0];
+    expect(calledWith).toHaveProperty('name', 'SetupGate');
     expect(calledWith.component).toHaveProperty('lazy');
     expect(typeof calledWith.component.lazy).toBe('function');
   });
