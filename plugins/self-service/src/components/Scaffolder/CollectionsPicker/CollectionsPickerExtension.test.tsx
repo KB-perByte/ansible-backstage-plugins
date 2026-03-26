@@ -153,7 +153,7 @@ describe('CollectionsPickerExtension', () => {
   });
 
   describe('Schema default resolution from catalog', () => {
-    it('calls onChange with resolved defaults when catalog matches', async () => {
+    it('fetches catalog when schema has defaults but does not call onChange (resolved list kept in ref only)', async () => {
       const onChange = jest.fn();
       const catalogEntry = {
         name: 'amazon.aws',
@@ -187,19 +187,14 @@ describe('CollectionsPickerExtension', () => {
       render(<CollectionsPickerExtension {...props} />);
 
       await waitFor(() => {
-        expect(onChange).toHaveBeenCalledWith([
-          {
-            name: 'amazon.aws',
-            source: 'Private Automation Hub / rh-certified',
-            version: '1.0.0',
-          },
-        ]);
+        expect(mockScaffolderApi.autocomplete).toHaveBeenCalled();
       });
 
-      expect(screen.getByText('amazon.aws')).toBeInTheDocument();
+      expect(onChange).not.toHaveBeenCalled();
+      expect(screen.queryByText('amazon.aws')).not.toBeInTheDocument();
     });
 
-    it('calls onChange with resolved defaults when formData is empty array (RJSF initial state)', async () => {
+    it('does not call onChange for name-only defaults with empty formData', async () => {
       const onChange = jest.fn();
       mockScaffolderApi.autocomplete.mockResolvedValue({
         results: [
@@ -221,10 +216,11 @@ describe('CollectionsPickerExtension', () => {
       render(<CollectionsPickerExtension {...props} />);
 
       await waitFor(() => {
-        expect(onChange).toHaveBeenCalledWith([{ name: 'amazon.aws' }]);
+        expect(mockScaffolderApi.autocomplete).toHaveBeenCalled();
       });
 
-      expect(screen.getByText('amazon.aws')).toBeInTheDocument();
+      expect(onChange).not.toHaveBeenCalled();
+      expect(screen.queryByText('amazon.aws')).not.toBeInTheDocument();
     });
 
     it('does not apply defaults when catalog has no match', async () => {
@@ -256,109 +252,6 @@ describe('CollectionsPickerExtension', () => {
       expect(
         screen.queryByText(/Selected collections/),
       ).not.toBeInTheDocument();
-    });
-
-    it('removes a default chip in one click', async () => {
-      const onChange = jest.fn();
-      mockScaffolderApi.autocomplete.mockResolvedValue({
-        results: [{ name: 'amazon.aws', versions: ['1.0.0'] }],
-      });
-
-      const props = createMockProps({
-        formData: [],
-        onChange,
-        schema: {
-          default: [{ name: 'amazon.aws' }],
-        } as any,
-      });
-
-      render(<CollectionsPickerExtension {...props} />);
-
-      await waitFor(() => {
-        expect(screen.getByText('amazon.aws')).toBeInTheDocument();
-      });
-
-      const chipRoot = screen
-        .getByText('amazon.aws')
-        .closest('.MuiChip-root') as HTMLElement;
-      const deleteIcon = chipRoot.querySelector('.MuiChip-deleteIcon');
-      expect(deleteIcon).toBeInTheDocument();
-      fireEvent.click(deleteIcon as Element);
-
-      await waitFor(() => {
-        expect(onChange).toHaveBeenLastCalledWith([]);
-      });
-    });
-
-    it('keeps default chip deleted after step revisit with empty formData', async () => {
-      const onChange = jest.fn();
-      mockScaffolderApi.autocomplete.mockResolvedValue({
-        results: [{ name: 'amazon.aws', versions: ['1.0.0'] }],
-      });
-
-      const baseProps = createMockProps({
-        formData: [],
-        onChange,
-        schema: {
-          default: [{ name: 'amazon.aws' }],
-        } as any,
-      });
-
-      const { unmount } = render(<CollectionsPickerExtension {...baseProps} />);
-
-      await waitFor(() => {
-        expect(screen.getByText('amazon.aws')).toBeInTheDocument();
-      });
-
-      const chipRoot = screen
-        .getByText('amazon.aws')
-        .closest('.MuiChip-root') as HTMLElement;
-      const deleteIcon = chipRoot.querySelector('.MuiChip-deleteIcon');
-      fireEvent.click(deleteIcon as Element);
-
-      await waitFor(() => {
-        expect(onChange).toHaveBeenLastCalledWith([]);
-      });
-
-      unmount();
-      render(
-        <CollectionsPickerExtension
-          {...createMockProps({ ...baseProps, formData: [] })}
-        />,
-      );
-
-      await waitFor(() => {
-        expect(screen.queryByText('amazon.aws')).not.toBeInTheDocument();
-      });
-    });
-
-    it('does not render stale default-only formData after back-step remount when defaults were cleared', async () => {
-      const onChange = jest.fn();
-      mockScaffolderApi.autocomplete.mockResolvedValue({
-        results: [{ name: 'amazon.aws', versions: ['1.0.0'] }],
-      });
-
-      sessionStorage.setItem(
-        'collections-picker-defaults-cleared:collections',
-        'true',
-      );
-
-      const props = createMockProps({
-        formData: [{ name: 'amazon.aws' }],
-        onChange,
-        schema: {
-          default: [{ name: 'amazon.aws' }],
-        } as any,
-      });
-
-      render(<CollectionsPickerExtension {...props} />);
-
-      await waitFor(() => {
-        expect(mockScaffolderApi.autocomplete).toHaveBeenCalled();
-      });
-
-      expect(screen.queryByText('amazon.aws')).not.toBeInTheDocument();
-      expect(onChange).not.toHaveBeenCalledWith([{ name: 'amazon.aws' }]);
     });
   });
 
@@ -2399,7 +2292,8 @@ describe('CollectionsPickerExtension', () => {
         <CollectionsPickerExtension {...props} formData={newFormData} />,
       );
 
-      expect(screen.getByText(/community\.general/)).toBeInTheDocument();
+      // Chips use displayedCollections state; formData-only rerender does not sync chips.
+      expect(screen.queryByText(/community\.general/)).not.toBeInTheDocument();
     });
 
     it('handles formData change to undefined', async () => {
@@ -2433,7 +2327,7 @@ describe('CollectionsPickerExtension', () => {
         <CollectionsPickerExtension {...props} formData={newFormData} />,
       );
 
-      expect(screen.getByText(/community\.general/)).toBeInTheDocument();
+      expect(screen.queryByText(/community\.general/)).not.toBeInTheDocument();
     });
   });
 

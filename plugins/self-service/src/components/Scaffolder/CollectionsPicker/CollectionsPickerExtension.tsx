@@ -85,27 +85,17 @@ export const CollectionsPickerExtension = ({
   rawErrors = [],
   formData,
   schema,
-  idSchema,
-  name,
 }: FieldExtensionComponentProps<CollectionItem[]>) => {
   const classes = useStyles();
-
   const parsedDefaults = useMemo(
     () => parseSchemaDefaultCollections(schema),
     [schema],
   );
-  const defaultsClearedStorageKey = useMemo(
-    () =>
-      `collections-picker-defaults-cleared:${name || idSchema?.$id || 'collections'}`,
-    [name, idSchema],
-  );
   const defaultsAppliedRef = useRef(false);
   const pendingCollectionsRef = useRef<CollectionItem[] | null>(null);
-
   const [collections, setCollections] = useState<CollectionItem[]>(
     Array.isArray(formData) ? formData : [],
   );
-  const displayedCollections = pendingCollectionsRef.current ?? collections;
   const setEditingIndex = useState<number | null>(null)[1];
   const setFieldErrors = useState<Record<string, string>>({})[1];
 
@@ -126,6 +116,9 @@ export const CollectionsPickerExtension = ({
 
   const aapAuth = useApi(rhAapAuthApiRef);
   const scaffolderApi = useApi(scaffolderApiRef);
+  const [displayedCollections, setDisplayedCollections] = useState<
+    CollectionItem[]
+  >(pendingCollectionsRef.current ?? collections);
 
   const areCollectionsEqual = useCallback(
     (a: CollectionItem[], b: CollectionItem[]) =>
@@ -139,28 +132,15 @@ export const CollectionsPickerExtension = ({
     [],
   );
 
-  const isDefaultsCleared = useCallback((): boolean => {
-    try {
-      return sessionStorage.getItem(defaultsClearedStorageKey) === 'true';
-    } catch {
-      return false;
+  useEffect(() => {
+    const collectionsData = sessionStorage.getItem('collections');
+    if (collectionsData) {
+      const defaultCollections = JSON.parse(collectionsData);
+      setCollections(defaultCollections);
+      onChange(defaultCollections);
+      setDisplayedCollections(defaultCollections);
     }
-  }, [defaultsClearedStorageKey]);
-
-  const setDefaultsCleared = useCallback(
-    (value: boolean) => {
-      try {
-        if (value) {
-          sessionStorage.setItem(defaultsClearedStorageKey, 'true');
-        } else {
-          sessionStorage.removeItem(defaultsClearedStorageKey);
-        }
-      } catch {
-        // no-op in environments where storage is unavailable
-      }
-    },
-    [defaultsClearedStorageKey],
-  );
+  }, [onChange, setCollections, setDisplayedCollections]);
 
   // Fetch collections for autocomplete
   const fetchCollections = useCallback(async () => {
@@ -290,11 +270,7 @@ export const CollectionsPickerExtension = ({
       return;
     }
 
-    if (
-      isDefaultsCleared() &&
-      parsedDefaults.length > 0 &&
-      formData.length > 0
-    ) {
+    if (parsedDefaults.length > 0 && formData.length > 0) {
       const defaultNames = new Set(parsedDefaults.map(item => item.name));
       const hasOnlyDefaultCollections = formData.every(item =>
         defaultNames.has(item.name),
@@ -315,7 +291,7 @@ export const CollectionsPickerExtension = ({
     ) {
       pendingCollectionsRef.current = null;
     }
-  }, [formData, areCollectionsEqual, isDefaultsCleared, parsedDefaults]);
+  }, [formData, areCollectionsEqual, parsedDefaults]);
 
   useEffect(() => {
     // RJSF often passes [] instead of undefined for empty array fields; still apply
@@ -324,10 +300,6 @@ export const CollectionsPickerExtension = ({
       return;
     }
     if (defaultsAppliedRef.current) {
-      return;
-    }
-    if (isDefaultsCleared()) {
-      defaultsAppliedRef.current = true;
       return;
     }
     if (!parsedDefaults.length) {
@@ -345,18 +317,8 @@ export const CollectionsPickerExtension = ({
       return;
     }
     defaultsAppliedRef.current = true;
-    setDefaultsCleared(false);
     pendingCollectionsRef.current = resolved;
-    setCollections(resolved);
-    onChange(resolved);
-  }, [
-    formData,
-    parsedDefaults,
-    availableCollections,
-    isDefaultsCleared,
-    setDefaultsCleared,
-    onChange,
-  ]);
+  }, [formData, parsedDefaults, availableCollections]);
 
   // Load collections on mount
   useEffect(() => {
@@ -418,9 +380,9 @@ export const CollectionsPickerExtension = ({
 
     pendingCollectionsRef.current = updatedCollections;
     setCollections(updatedCollections);
-    setDefaultsCleared(false);
     onChange(updatedCollections);
-
+    setDisplayedCollections(updatedCollections);
+    sessionStorage.setItem('collections', JSON.stringify(updatedCollections));
     setSelectedCollection(null);
     setSelectedSource(null);
     setSelectedVersion(null);
@@ -434,10 +396,9 @@ export const CollectionsPickerExtension = ({
     );
     pendingCollectionsRef.current = updatedCollections;
     setCollections(updatedCollections);
-    setDefaultsCleared(
-      updatedCollections.length === 0 && parsedDefaults.length > 0,
-    );
     onChange(updatedCollections);
+    setDisplayedCollections(updatedCollections);
+    sessionStorage.setItem('collections', JSON.stringify(updatedCollections));
   };
 
   const handleEditCollection = (index: number) => {

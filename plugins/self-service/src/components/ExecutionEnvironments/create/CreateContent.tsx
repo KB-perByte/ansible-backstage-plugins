@@ -125,6 +125,10 @@ export const CreateContent = () => {
     navigate(`${rootLink()}/catalog-import`);
   };
 
+  useEffect(() => {
+    sessionStorage.removeItem('collections');
+  }, []);
+
   return (
     <div data-testid="create-content">
       <Box className={classes.headerRow}>
