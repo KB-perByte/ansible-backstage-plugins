@@ -1,4 +1,4 @@
-import { ChangeEvent, useState, useEffect } from 'react';
+import { ChangeEvent, useState, useEffect, useMemo, useRef } from 'react';
 import { FieldExtensionComponentProps } from '@backstage/plugin-scaffolder-react';
 import {
   Button,
@@ -54,6 +54,40 @@ const useStyles = makeStyles(theme => ({
   },
 }));
 
+type PackageDefaultEntry =
+  | string
+  | { name: string; version?: string; source?: string };
+
+function normalizeDefaultPackages(raw: unknown): string[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw
+    .map((entry: PackageDefaultEntry) => {
+      if (typeof entry === 'string') {
+        return entry.trim();
+      }
+      if (
+        entry &&
+        typeof entry === 'object' &&
+        typeof entry.name === 'string'
+      ) {
+        let line = entry.name.trim();
+        const v = entry.version?.trim();
+        if (v) {
+          line += /^[=<>~!]/.test(v) ? v : `==${v}`;
+        }
+        const src = entry.source?.trim();
+        if (src) {
+          line += ` # ${src}`;
+        }
+        return line;
+      }
+      return '';
+    })
+    .filter(line => line.length > 0);
+}
+
 export const PackagesPickerExtension = ({
   onChange,
   disabled,
@@ -64,7 +98,15 @@ export const PackagesPickerExtension = ({
 }: FieldExtensionComponentProps<string[]>) => {
   const classes = useStyles();
 
-  const [items, setItems] = useState<string[]>(formData || []);
+  const defaultItems = useMemo(
+    () => normalizeDefaultPackages(schema?.default),
+    [schema?.default],
+  );
+
+  const [items, setItems] = useState<string[]>(() =>
+    formData !== undefined ? formData : defaultItems,
+  );
+  const appliedInitialDefaultRef = useRef(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [newItem, setNewItem] = useState<string>('');
 
@@ -88,6 +130,20 @@ export const PackagesPickerExtension = ({
       setItems(formData);
     }
   }, [formData]);
+
+  useEffect(() => {
+    if (appliedInitialDefaultRef.current) {
+      return;
+    }
+    if (formData !== undefined) {
+      appliedInitialDefaultRef.current = true;
+      return;
+    }
+    appliedInitialDefaultRef.current = true;
+    if (defaultItems.length > 0) {
+      onChange(defaultItems);
+    }
+  }, [formData, defaultItems, onChange]);
 
   const handleAddItem = () => {
     if (newItem.trim()) {

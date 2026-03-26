@@ -100,13 +100,90 @@ describe('PackagesPickerExtension', () => {
       expect(screen.getByText('boto3')).toBeInTheDocument();
     });
 
-    it('handles undefined formData', () => {
+    it('handles undefined formData when schema has no default', () => {
       const props = createMockProps({ formData: undefined });
       render(<PackagesPickerExtension {...props} />);
       expect(screen.getByText('Add Packages Manually')).toBeInTheDocument();
       expect(
         screen.queryByRole('button', { name: /requests/i }),
       ).not.toBeInTheDocument();
+    });
+
+    it('renders chips from schema default when formData is undefined', () => {
+      const props = createMockProps({
+        formData: undefined,
+        schema: {
+          title: 'Python Packages',
+          description: 'Add Python packages',
+          default: ['requests>=2.28.0', 'boto3'],
+          items: {
+            type: 'string' as const,
+            title: 'Package',
+          },
+        },
+      });
+      render(<PackagesPickerExtension {...props} />);
+      expect(screen.getByText('requests>=2.28.0')).toBeInTheDocument();
+      expect(screen.getByText('boto3')).toBeInTheDocument();
+    });
+
+    it('calls onChange with schema default when formData is undefined', () => {
+      const onChange = jest.fn();
+      const props = createMockProps({
+        onChange,
+        formData: undefined,
+        schema: {
+          title: 'Python Packages',
+          default: ['pkg-a'],
+          items: { type: 'string' as const },
+        },
+      });
+      render(<PackagesPickerExtension {...props} />);
+      expect(onChange).toHaveBeenCalledWith(['pkg-a']);
+    });
+
+    it('normalizes object defaults with name, version, and source to strings', () => {
+      const onChange = jest.fn();
+      const props = createMockProps({
+        onChange,
+        formData: undefined,
+        schema: {
+          title: 'Packages',
+          default: [
+            { name: 'requests', version: '>=2.28.0' },
+            { name: 'boto3', version: '1.0.0' },
+            { name: 'cffi', source: 'https://pypi.org/simple' },
+          ],
+          items: { type: 'string' as const },
+        },
+      });
+      render(<PackagesPickerExtension {...props} />);
+      expect(onChange).toHaveBeenCalledWith([
+        'requests>=2.28.0',
+        'boto3==1.0.0',
+        'cffi # https://pypi.org/simple',
+      ]);
+      expect(screen.getByText('requests>=2.28.0')).toBeInTheDocument();
+      expect(screen.getByText('boto3==1.0.0')).toBeInTheDocument();
+      expect(
+        screen.getByText('cffi # https://pypi.org/simple'),
+      ).toBeInTheDocument();
+    });
+
+    it('does not apply defaults when formData is an empty array', () => {
+      const onChange = jest.fn();
+      const props = createMockProps({
+        onChange,
+        formData: [],
+        schema: {
+          title: 'Python Packages',
+          default: ['should-not-appear'],
+          items: { type: 'string' as const },
+        },
+      });
+      render(<PackagesPickerExtension {...props} />);
+      expect(screen.queryByText('should-not-appear')).not.toBeInTheDocument();
+      expect(onChange).not.toHaveBeenCalled();
     });
 
     it('renders description when provided', () => {
