@@ -131,4 +131,104 @@ describe('resolveDefaultCollectionsFromCatalog', () => {
       ),
     ).toEqual([{ name: 'community.general', version: '7.0.0' }]);
   });
+
+  it('resolves sourceVersions by fuzzy key when direct key missing (covers 34,35,37)', () => {
+    const scopedCatalog = [
+      {
+        name: 'amazon.aws',
+        sources: ['Private Automation Hub / rh-certified'],
+        sourceVersions: {
+          'private automation hub / RH-CERTIFIED': ['1.0.0'],
+        },
+      },
+    ];
+
+    const resolved = resolveDefaultCollectionsFromCatalog(
+      [{ name: 'amazon.aws', source: 'rh-certified', version: '1.0.0' }],
+      scopedCatalog,
+    );
+
+    expect(resolved).toEqual([
+      {
+        name: 'amazon.aws',
+        source: 'Private Automation Hub / rh-certified',
+        version: '1.0.0',
+      },
+    ]);
+  });
+
+  it('skips defaults with blank collection name (covers 79)', () => {
+    const scopedCatalog = [{ name: 'amazon.aws', versions: ['1.0.0'] }];
+
+    const resolved = resolveDefaultCollectionsFromCatalog(
+      [{ name: '   ' } as any],
+      scopedCatalog,
+    );
+
+    expect(resolved).toEqual([]);
+  });
+
+  it('matches version via sourceVersions nested values (covers 91)', () => {
+    const scopedCatalog = [
+      {
+        name: 'amazon.aws',
+        sourceVersions: {
+          'Private Automation Hub / rh-certified': ['9.9.9'],
+        },
+        versions: [],
+      },
+    ];
+
+    const resolved = resolveDefaultCollectionsFromCatalog(
+      [{ name: 'amazon.aws', version: '9.9.9' }],
+      scopedCatalog,
+    );
+
+    expect(resolved).toEqual([{ name: 'amazon.aws', version: '9.9.9' }]);
+  });
+
+  it('rejects version-only when version is absent (covers 116)', () => {
+    const scopedCatalog = [{ name: 'community.general', versions: ['7.0.0'] }];
+
+    const resolved = resolveDefaultCollectionsFromCatalog(
+      [{ name: 'community.general', version: '0.0.1' }],
+      scopedCatalog,
+    );
+
+    expect(resolved).toEqual([]);
+  });
+
+  it('rejects source+version when source does not match (covers 128)', () => {
+    const scopedCatalog = [
+      {
+        name: 'amazon.aws',
+        sources: ['Private Automation Hub / rh-certified'],
+        sourceVersions: { 'Private Automation Hub / rh-certified': ['1.0.0'] },
+      },
+    ];
+
+    const resolved = resolveDefaultCollectionsFromCatalog(
+      [{ name: 'amazon.aws', source: 'wrong-source', version: '1.0.0' }],
+      scopedCatalog,
+    );
+
+    expect(resolved).toEqual([]);
+  });
+
+  it('rejects source+version when source matches but version does not (covers 133)', () => {
+    const scopedCatalog = [
+      {
+        name: 'amazon.aws',
+        sources: ['Private Automation Hub / rh-certified'],
+        sourceVersions: { 'Private Automation Hub / rh-certified': ['2.0.0'] },
+      },
+    ];
+
+    const resolved = resolveDefaultCollectionsFromCatalog(
+      [{ name: 'amazon.aws', source: 'rh-certified', version: '1.0.0' }],
+      scopedCatalog,
+    );
+
+    expect(resolved).toEqual([]);
+  });
 });

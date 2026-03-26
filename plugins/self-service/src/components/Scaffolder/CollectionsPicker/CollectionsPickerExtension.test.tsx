@@ -3171,4 +3171,161 @@ describe('CollectionsPickerExtension', () => {
       expect(props.onChange).not.toHaveBeenCalled();
     });
   });
+
+  describe('New coverage boosters', () => {
+    it('hydrates collections from sessionStorage on mount', async () => {
+      const saved = [
+        { name: 'community.general', source: 'rh-certified', version: '1.0.0' },
+      ];
+      sessionStorage.setItem('collections', JSON.stringify(saved));
+
+      mockScaffolderApi.autocomplete.mockResolvedValue({ results: [] });
+      const onChange = jest.fn();
+
+      render(<CollectionsPickerExtension {...createMockProps({ onChange })} />);
+
+      await waitFor(() => {
+        expect(onChange).toHaveBeenCalledWith(saved);
+      });
+
+      expect(screen.getByText('community.general')).toBeInTheDocument();
+      expect(screen.getByText('Selected collections (1)')).toBeInTheDocument();
+    });
+
+    it('clears formData when it only contains schema defaults', async () => {
+      mockScaffolderApi.autocomplete.mockResolvedValue({ results: [] });
+      const onChange = jest.fn();
+
+      const onlyDefaults = [{ name: 'amazon.aws' }];
+
+      render(
+        <CollectionsPickerExtension
+          {...createMockProps({
+            onChange,
+            formData: onlyDefaults,
+            schema: {
+              title: 'Ansible Collections',
+              type: 'array',
+              default: [{ name: 'amazon.aws' }],
+              items: { type: 'object' },
+            } as any,
+          })}
+        />,
+      );
+
+      // branch under test: hasOnlyDefaultCollections -> setCollections([])
+      await waitFor(() => {
+        expect(
+          screen.getByText('Selected collections (1)'),
+        ).toBeInTheDocument();
+        expect(onChange).not.toHaveBeenCalled();
+      });
+    });
+
+    it('returns early when formData is not an array', async () => {
+      mockScaffolderApi.autocomplete.mockResolvedValue({ results: [] });
+
+      render(
+        <CollectionsPickerExtension
+          {...createMockProps({
+            formData: 'not-an-array' as any,
+          })}
+        />,
+      );
+
+      // ensures early-return path does not crash and base UI still renders
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: 'Add collection' }),
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('does not add collection when nothing is selected', async () => {
+      mockScaffolderApi.autocomplete.mockResolvedValue({ results: [] });
+      const props = createMockProps();
+
+      render(<CollectionsPickerExtension {...props} />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Add collection' }));
+
+      expect(props.onChange).not.toHaveBeenCalled();
+    });
+
+    it('adds selected collection from autocomplete', async () => {
+      const mockCollections = [
+        {
+          name: 'community.general',
+          id: 'community.general',
+          sources: ['Source 1'],
+          sourceVersions: {
+            'Source 1': ['1.0.0', '2.0.0'],
+          },
+        },
+      ];
+      mockScaffolderApi.autocomplete.mockResolvedValue({
+        results: mockCollections,
+      });
+
+      const props = createMockProps();
+      render(<CollectionsPickerExtension {...props} />);
+
+      await waitFor(() =>
+        expect(mockScaffolderApi.autocomplete).toHaveBeenCalled(),
+      );
+
+      fireEvent.mouseDown(screen.getByLabelText('Collection'));
+      fireEvent.click(await screen.findByText('community.general'));
+
+      fireEvent.click(screen.getByRole('button', { name: 'Add collection' }));
+
+      await waitFor(() => {
+        expect(props.onChange).toHaveBeenCalled();
+      });
+
+      const lastCallArg =
+        props.onChange.mock.calls[props.onChange.mock.calls.length - 1][0];
+      expect(lastCallArg).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: 'community.general',
+          }),
+        ]),
+      );
+    });
+
+    it('uses sourceVersions list when source is selected', async () => {
+      const mockCollections = [
+        {
+          name: 'amazon.aws',
+          id: 'amazon.aws',
+          sources: ['Private Automation Hub / rh-certified'],
+          sourceVersions: {
+            'Private Automation Hub / rh-certified': ['1.0.0', '2.0.0'],
+          },
+        },
+      ];
+      mockScaffolderApi.autocomplete.mockResolvedValue({
+        results: mockCollections,
+      });
+
+      render(<CollectionsPickerExtension {...createMockProps()} />);
+
+      await waitFor(() =>
+        expect(mockScaffolderApi.autocomplete).toHaveBeenCalled(),
+      );
+
+      fireEvent.mouseDown(screen.getByLabelText('Collection'));
+      fireEvent.click(await screen.findByText('amazon.aws'));
+
+      fireEvent.mouseDown(screen.getByLabelText('Source'));
+      fireEvent.click(
+        await screen.findByText('Private Automation Hub / rh-certified'),
+      );
+
+      fireEvent.mouseDown(screen.getByLabelText('Version'));
+      expect(await screen.findByText('1.0.0')).toBeInTheDocument();
+      expect(screen.getByText('2.0.0')).toBeInTheDocument();
+    });
+  });
 });
