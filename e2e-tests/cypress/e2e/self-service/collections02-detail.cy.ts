@@ -54,7 +54,10 @@ function navigateToCollectionsIndexViaSidebar() {
       cy.visit('/self-service/collections');
     }
   });
-  cy.url({ timeout: 20000 }).should('match', /\/self-service\/collections\/?(\?.*)?$/);
+  cy.url({ timeout: 20000 }).should(
+    'match',
+    /\/self-service\/collections\/?(\?.*)?$/,
+  );
   cy.get('main', { timeout: 30000 }).should('be.visible');
 }
 
@@ -106,9 +109,7 @@ describe('Collections Detail Page', () => {
           cy.wait(500);
           cy.url().should('match', /\/self-service\/collections\/.+/);
         } else {
-          cy.log(
-            'View Source not shown — skipping (no source URL on entity)',
-          );
+          cy.log('View Source not shown — skipping (no source URL on entity)');
         }
       });
 
@@ -151,9 +152,7 @@ describe('Collections Detail Page', () => {
           .first()
           .find('a[href^="http"]')
           .each($a => {
-            cy.wrap($a)
-              .invoke('removeAttr', 'target')
-              .click({ force: true });
+            cy.wrap($a).invoke('removeAttr', 'target').click({ force: true });
             cy.wait(1000);
             cy.url().then(url => {
               if (!url.includes('/self-service/collections/')) {

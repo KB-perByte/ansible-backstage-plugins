@@ -72,9 +72,7 @@ describe('Collections Catalog — catalog page', () => {
       }
 
       // --- 1) Source Type & Tags (MUI Autocomplete): open and dismiss ---
-      const $srcInput = $body.find(
-        'input[placeholder="Search sources..."]',
-      );
+      const $srcInput = $body.find('input[placeholder="Search sources..."]');
       if ($srcInput.length > 0) {
         cy.get('input[placeholder="Search sources..."]')
           .first()
@@ -127,7 +125,9 @@ describe('Collections Catalog — catalog page', () => {
                   $after.find('[role="dialog"]').length > 0 ||
                   $after.text().includes('Sync')
                 ) {
-                  cy.log('Sync action triggered (dialog or sync UI may be visible)');
+                  cy.log(
+                    'Sync action triggered (dialog or sync UI may be visible)',
+                  );
                 }
               });
             }
@@ -168,7 +168,9 @@ describe('Collections Catalog — catalog page', () => {
               force: true,
             });
           } else {
-            cy.log('No external source link on first card — skipping link navigation');
+            cy.log(
+              'No external source link on first card — skipping link navigation',
+            );
           }
         });
       });
@@ -185,7 +187,10 @@ describe('Collections Catalog — catalog page', () => {
         .first()
         .click('left', { force: true });
       cy.wait(2000);
-      cy.url({ timeout: 15000 }).should('match', /\/self-service\/collections\/.+/);
+      cy.url({ timeout: 15000 }).should(
+        'match',
+        /\/self-service\/collections\/.+/,
+      );
 
       // Sidebar: Collections → back to catalog list (index)
       cy.get('body').then($b4 => {
@@ -201,7 +206,10 @@ describe('Collections Catalog — catalog page', () => {
         }
       });
       cy.wait(1500);
-      cy.url({ timeout: 15000 }).should('match', /\/self-service\/collections\/?(\?.*)?$/);
+      cy.url({ timeout: 15000 }).should(
+        'match',
+        /\/self-service\/collections\/?(\?.*)?$/,
+      );
       cy.get('main', { timeout: 15000 }).should('be.visible');
       cy.contains('Ansible Collections', { timeout: 15000 }).should('exist');
     });
@@ -219,7 +227,9 @@ describe('Collections Catalog — catalog page', () => {
       }
       const $search = $body.find('input[placeholder="Search"]');
       if ($search.length === 0) return;
-      cy.get('input[placeholder="Search"]').first().type('e2e', { force: true });
+      cy.get('input[placeholder="Search"]')
+        .first()
+        .type('e2e', { force: true });
       cy.wait(400);
       cy.get('input[placeholder="Search"]').first().clear({ force: true });
     });
