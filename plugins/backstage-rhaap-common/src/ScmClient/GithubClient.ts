@@ -469,9 +469,7 @@ export class GithubClient extends BaseScmClient {
   }> {
     const path = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(
       repo,
-    )}/actions/workflows/${encodeURIComponent(
-      workflowFileName,
-    )}/dispatches`;
+    )}/actions/workflows/${encodeURIComponent(workflowFileName)}/dispatches`;
     const url = `${this.apiUrl}${path}`;
     const response = await this.doFetch(url, {
       method: 'POST',

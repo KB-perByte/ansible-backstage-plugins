@@ -1389,7 +1389,9 @@ describe('helpers', () => {
         auth: {
           isPrincipal: jest
             .fn()
-            .mockImplementation((_: unknown, type: string) => type === 'service'),
+            .mockImplementation(
+              (_: unknown, type: string) => type === 'service',
+            ),
         } as any,
         allowedExternalAccessSubjects: ['bot-a'],
       });
@@ -1412,7 +1414,9 @@ describe('helpers', () => {
         auth: {
           isPrincipal: jest
             .fn()
-            .mockImplementation((_: unknown, type: string) => type === 'service'),
+            .mockImplementation(
+              (_: unknown, type: string) => type === 'service',
+            ),
         } as any,
         allowedExternalAccessSubjects: ['bot-a'],
       });

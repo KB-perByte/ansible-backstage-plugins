@@ -951,8 +951,7 @@ describe('createRouter', () => {
           auth: mockAuth,
           catalogClient: mockCatalogClient,
           ansibleGitContentsProviders: [],
-          allowedExternalAccessSubjects:
-            options.allowedExternalAccessSubjects,
+          allowedExternalAccessSubjects: options.allowedExternalAccessSubjects,
         }),
       );
       return testApp;

@@ -161,6 +161,7 @@ export interface EeBuildRequestValidated {
 }
 
 function assertNoControlChars(value: string, field: string): void {
+  // eslint-disable-next-line no-control-regex
   if (/[\x00-\x1f\x7f]/.test(value)) {
     throw new Error(`${field} contains invalid characters`);
   }
@@ -194,7 +195,9 @@ export function assertSafeEeFileName(fileName: string): void {
  * Validates POST /ansible/ee/build JSON body.
  * @throws Error with a message suitable for HTTP 400 responses.
  */
-export function parseEeBuildRequestBody(body: unknown): EeBuildRequestValidated {
+export function parseEeBuildRequestBody(
+  body: unknown,
+): EeBuildRequestValidated {
   if (!body || typeof body !== 'object') {
     throw new Error('Request body must be a JSON object');
   }
@@ -276,9 +279,7 @@ export function resolveGithubRepoForEeBuild(
   gitRefOverride?: string,
 ): EeGithubDispatchContext {
   if (entity.kind !== 'Component') {
-    throw new Error(
-      'Execution Environment build requires a Component entity',
-    );
+    throw new Error('Execution Environment build requires a Component entity');
   }
   if (entity.spec?.type !== 'execution-environment') {
     throw new Error('Entity spec.type must be execution-environment');
@@ -578,12 +579,12 @@ export const EE_BUILD_CATALOG_CREDENTIALS_LOCALS_KEY =
  */
 export function checkRequireUserOrExternalAccess(
   deps: RequireUserOrExternalAccessDeps,
-): (
-  req: Request,
-  res: Response,
-) => Promise<BackstageCredentials | null> {
+): (req: Request, res: Response) => Promise<BackstageCredentials | null> {
   const { httpAuth, auth, logger, allowedExternalAccessSubjects } = deps;
-  return async (req: Request, res: Response): Promise<BackstageCredentials | null> => {
+  return async (
+    req: Request,
+    res: Response,
+  ): Promise<BackstageCredentials | null> => {
     try {
       const credentials = await httpAuth.credentials(req as any, {
         allow: ['user', 'service'],
