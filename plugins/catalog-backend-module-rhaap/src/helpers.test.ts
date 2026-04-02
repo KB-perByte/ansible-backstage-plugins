@@ -10,6 +10,7 @@ jest.mock('@ansible/backstage-rhaap-common', () => {
   };
 });
 
+import { ANNOTATION_EDIT_URL } from '@backstage/catalog-model';
 import { ConfigReader } from '@backstage/config';
 import {
   formatNameSpace,
@@ -24,9 +25,13 @@ import {
   buildInvalidRepositoryResults,
   getSyncResponseStatusCode,
   checkRequireSuperuser,
+  checkRequireUserOrExternalAccess,
   createRequireSuperuserMiddleware,
+  createRequireUserOrExternalAccessMiddleware,
+  EE_BUILD_CATALOG_CREDENTIALS_LOCALS_KEY,
   type RequireSuperuserDeps,
   type CIActivityDeps,
+  type RequireUserOrExternalAccessDeps,
   isSafeHostname,
   getGitHubIntegrationForHost,
   getGitLabIntegrationForHost,
@@ -35,6 +40,7 @@ import {
   isGitLabHostAllowedForProxy,
   handleGitHubCIActivity,
   handleGitLabCIActivity,
+  resolveGithubRepoForEeBuild,
 } from './helpers';
 import type { AnsibleGitContentsProvider } from './providers/AnsibleGitContentsProvider';
 
@@ -1330,6 +1336,249 @@ describe('helpers', () => {
         token: 'corp-token',
         apiBaseUrl: undefined,
       });
+    });
+  });
+
+  describe('checkRequireUserOrExternalAccess', () => {
+    function createEeAuthDeps(
+      overrides: Partial<RequireUserOrExternalAccessDeps> = {},
+    ): RequireUserOrExternalAccessDeps {
+      return {
+        httpAuth: {
+          credentials: jest.fn().mockResolvedValue({ $user: true }),
+        } as any,
+        auth: {
+          isPrincipal: jest
+            .fn()
+            .mockImplementation((_: unknown, type: string) => type === 'user'),
+        } as any,
+        logger: {
+          info: jest.fn(),
+          warn: jest.fn(),
+          error: jest.fn(),
+          debug: jest.fn(),
+          child: jest.fn().mockReturnThis(),
+        } as any,
+        ...overrides,
+      };
+    }
+
+    it('returns user credentials when principal is user', async () => {
+      const userCreds = { principal: { type: 'user' } };
+      const deps = createEeAuthDeps({
+        httpAuth: {
+          credentials: jest.fn().mockResolvedValue(userCreds),
+        } as any,
+      });
+      const check = checkRequireUserOrExternalAccess(deps);
+      const res = {
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn().mockReturnThis(),
+      } as any;
+      const out = await check({} as any, res);
+      expect(out).toBe(userCreds);
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it('allows service principal when subject is in allowlist', async () => {
+      const svcCreds = { principal: { type: 'service', subject: 'bot-a' } };
+      const deps = createEeAuthDeps({
+        httpAuth: {
+          credentials: jest.fn().mockResolvedValue(svcCreds),
+        } as any,
+        auth: {
+          isPrincipal: jest
+            .fn()
+            .mockImplementation((_: unknown, type: string) => type === 'service'),
+        } as any,
+        allowedExternalAccessSubjects: ['bot-a'],
+      });
+      const check = checkRequireUserOrExternalAccess(deps);
+      const res = {
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn().mockReturnThis(),
+      } as any;
+      const out = await check({} as any, res);
+      expect(out).toBe(svcCreds);
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it('rejects service principal when subject not in allowlist', async () => {
+      const svcCreds = { principal: { type: 'service', subject: 'evil' } };
+      const deps = createEeAuthDeps({
+        httpAuth: {
+          credentials: jest.fn().mockResolvedValue(svcCreds),
+        } as any,
+        auth: {
+          isPrincipal: jest
+            .fn()
+            .mockImplementation((_: unknown, type: string) => type === 'service'),
+        } as any,
+        allowedExternalAccessSubjects: ['bot-a'],
+      });
+      const check = checkRequireUserOrExternalAccess(deps);
+      const res = {
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn().mockReturnThis(),
+      } as any;
+      const out = await check({} as any, res);
+      expect(out).toBeNull();
+      expect(res.status).toHaveBeenCalledWith(403);
+    });
+
+    it('sends 401 when credentials fail', async () => {
+      const deps = createEeAuthDeps({
+        httpAuth: {
+          credentials: jest.fn().mockRejectedValue(new Error('no cookie')),
+        } as any,
+      });
+      const check = checkRequireUserOrExternalAccess(deps);
+      const res = {
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn().mockReturnThis(),
+      } as any;
+      const out = await check({} as any, res);
+      expect(out).toBeNull();
+      expect(res.status).toHaveBeenCalledWith(401);
+    });
+  });
+
+  describe('createRequireUserOrExternalAccessMiddleware', () => {
+    it('sets res.locals and calls next when authenticated', async () => {
+      const userCreds = { principal: { type: 'user' } };
+      const deps: RequireUserOrExternalAccessDeps = {
+        httpAuth: {
+          credentials: jest.fn().mockResolvedValue(userCreds),
+        } as any,
+        auth: {
+          isPrincipal: jest
+            .fn()
+            .mockImplementation((_: unknown, type: string) => type === 'user'),
+        } as any,
+        logger: {
+          info: jest.fn(),
+          warn: jest.fn(),
+          error: jest.fn(),
+          debug: jest.fn(),
+          child: jest.fn().mockReturnThis(),
+        } as any,
+      };
+      const middleware = createRequireUserOrExternalAccessMiddleware(deps);
+      const next = jest.fn();
+      const res: any = {
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn().mockReturnThis(),
+        locals: {},
+      };
+      await middleware({} as any, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(res.locals[EE_BUILD_CATALOG_CREDENTIALS_LOCALS_KEY]).toBe(
+        userCreds,
+      );
+    });
+  });
+
+  describe('resolveGithubRepoForEeBuild', () => {
+    it('resolves owner, repo, and ref from GitHub blob source-location', () => {
+      const entity = {
+        apiVersion: 'backstage.io/v1alpha1',
+        kind: 'Component',
+        metadata: {
+          name: 'ee1',
+          annotations: {
+            'backstage.io/source-location':
+              'url:https://github.com/acme/widgets/blob/develop/my-ee/ee1.yml',
+          },
+        },
+        spec: { type: 'execution-environment' },
+      };
+      expect(resolveGithubRepoForEeBuild(entity)).toEqual({
+        host: 'github.com',
+        owner: 'acme',
+        repo: 'widgets',
+        ref: 'develop',
+      });
+    });
+
+    it('prefers edit URL over source-location when both exist', () => {
+      const entity = {
+        apiVersion: 'backstage.io/v1alpha1',
+        kind: 'Component',
+        metadata: {
+          name: 'ee1',
+          annotations: {
+            [ANNOTATION_EDIT_URL]:
+              'https://github.com/other/other-repo/blob/main/x.yml',
+            'backstage.io/source-location':
+              'url:https://github.com/acme/widgets/blob/develop/e.yml',
+          },
+        },
+        spec: { type: 'execution-environment' },
+      };
+      expect(resolveGithubRepoForEeBuild(entity).owner).toBe('other');
+    });
+
+    it('applies git_ref override', () => {
+      const entity = {
+        apiVersion: 'backstage.io/v1alpha1',
+        kind: 'Component',
+        metadata: {
+          name: 'ee1',
+          annotations: {
+            'backstage.io/source-location':
+              'url:https://github.com/org/repo/blob/main/a.yml',
+          },
+        },
+        spec: { type: 'execution-environment' },
+      };
+      expect(resolveGithubRepoForEeBuild(entity, 'release-1.0').ref).toBe(
+        'release-1.0',
+      );
+    });
+
+    it('throws when kind is not Component', () => {
+      expect(() =>
+        resolveGithubRepoForEeBuild({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: 'Template',
+          metadata: { name: 't' },
+          spec: { type: 'execution-environment' },
+        } as any),
+      ).toThrow('Component');
+    });
+
+    it('throws when spec.type is not execution-environment', () => {
+      expect(() =>
+        resolveGithubRepoForEeBuild({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: 'Component',
+          metadata: {
+            name: 'x',
+            annotations: {
+              'backstage.io/source-location':
+                'url:https://github.com/o/r/blob/main/a.yml',
+            },
+          },
+          spec: { type: 'service' },
+        } as any),
+      ).toThrow('execution-environment');
+    });
+
+    it('throws for non-GitHub source URL', () => {
+      expect(() =>
+        resolveGithubRepoForEeBuild({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: 'Component',
+          metadata: {
+            name: 'x',
+            annotations: {
+              'backstage.io/source-location':
+                'url:https://gitlab.com/group/project/-/blob/main/a.yml',
+            },
+          },
+          spec: { type: 'execution-environment' },
+        } as any),
+      ).toThrow('GitHub');
     });
   });
 

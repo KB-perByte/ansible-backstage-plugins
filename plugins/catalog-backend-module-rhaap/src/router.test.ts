@@ -923,6 +923,183 @@ describe('createRouter', () => {
     });
   });
 
+  describe('POST /ansible/ee/build', () => {
+    const validBuildBody = {
+      entityRef: 'component:default/my-ee',
+      ee_dir: 'my-ee',
+      ee_file_name: 'my-ee.yml',
+      ee_registry: 'quay.io/ansible',
+      ee_image_name: 'namespace/my-image',
+    };
+
+    async function createEeBuildTestApp(
+      options: { allowedExternalAccessSubjects?: string[] } = {},
+    ) {
+      const testApp = express();
+      testApp.use(express.json());
+      testApp.use(
+        '/',
+        await createRouter({
+          logger: mockLogger,
+          config: mockConfig,
+          aapEntityProvider: mockAAPEntityProvider,
+          jobTemplateProvider: mockJobTemplateProvider,
+          eeEntityProvider: mockEEEntityProvider,
+          pahCollectionProviders: [mockPAHCollectionProvider],
+          httpAuth: mockHttpAuth,
+          userInfo: mockUserInfo,
+          auth: mockAuth,
+          catalogClient: mockCatalogClient,
+          ansibleGitContentsProviders: [],
+          allowedExternalAccessSubjects:
+            options.allowedExternalAccessSubjects,
+        }),
+      );
+      return testApp;
+    }
+
+    it('returns 400 when body is invalid', async () => {
+      const testApp = await createEeBuildTestApp();
+      const response = await request(testApp)
+        .post('/ansible/ee/build')
+        .send({ entityRef: 'component:default/x' })
+        .expect(400);
+      expect(response.body.error).toContain('ee_dir');
+    });
+
+    it('returns 401 when user credentials are missing', async () => {
+      mockHttpAuth.credentials.mockRejectedValueOnce(new Error('unauthorized'));
+      const testApp = await createEeBuildTestApp();
+      const response = await request(testApp)
+        .post('/ansible/ee/build')
+        .send(validBuildBody)
+        .expect(401);
+      expect(response.body.error).toMatch(/Authentication required/i);
+    });
+
+    it('returns 403 when external access subject is not allowlisted', async () => {
+      const serviceCreds = {
+        principal: { type: 'service', subject: 'wrong-subject' },
+      };
+      mockHttpAuth.credentials.mockResolvedValue(serviceCreds as any);
+      mockAuth.isPrincipal.mockImplementation((c: any, t: string) => {
+        if (t === 'service') return c?.principal?.type === 'service';
+        if (t === 'user') return c?.principal?.type === 'user';
+        return false;
+      });
+      const testApp = await createEeBuildTestApp({
+        allowedExternalAccessSubjects: ['allowed-ci'],
+      });
+      const response = await request(testApp)
+        .post('/ansible/ee/build')
+        .send(validBuildBody)
+        .expect(403);
+      expect(response.body.error).toMatch(/external access subject/i);
+    });
+
+    it('returns 404 when catalog returns no entity for user token', async () => {
+      mockHttpAuth.credentials.mockResolvedValue({} as any);
+      mockCatalogClient.getEntityByRef.mockResolvedValueOnce(undefined);
+      const testApp = await createEeBuildTestApp();
+      const response = await request(testApp)
+        .post('/ansible/ee/build')
+        .send(validBuildBody)
+        .expect(404);
+      expect(response.body.error).toMatch(/not found|not visible/i);
+    });
+
+    it('returns 204 and dispatches workflow_dispatch with required inputs', async () => {
+      mockHttpAuth.credentials.mockResolvedValue({} as any);
+      mockCatalogClient.getEntityByRef.mockResolvedValueOnce({
+        apiVersion: 'backstage.io/v1alpha1',
+        kind: 'Component',
+        metadata: {
+          name: 'my-ee',
+          annotations: {
+            'backstage.io/source-location':
+              'url:https://github.com/acme/widgets/blob/main/my-ee/my-ee.yml',
+          },
+        },
+        spec: { type: 'execution-environment' },
+      });
+
+      const mockFetch = jest.spyOn(global, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 204,
+        text: async () => '',
+      } as Response);
+
+      const testApp = await createEeBuildTestApp();
+      const response = await request(testApp)
+        .post('/ansible/ee/build')
+        .send(validBuildBody)
+        .expect(204);
+
+      expect(response.body).toEqual({});
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.github.com/repos/acme/widgets/actions/workflows/ee-build.yml/dispatches',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            Authorization: 'Bearer test-token',
+            'Content-Type': 'application/json',
+          }),
+          body: JSON.stringify({
+            ref: 'main',
+            inputs: {
+              ee_dir: 'my-ee',
+              ee_file_name: 'my-ee.yml',
+              ee_registry: 'quay.io/ansible',
+              ee_image_name: 'namespace/my-image',
+            },
+          }),
+        }),
+      );
+      mockFetch.mockRestore();
+    });
+
+    it('returns 204 for allowlisted service principal (external access)', async () => {
+      const serviceCreds = {
+        principal: { type: 'service', subject: 'allowed-ci' },
+      };
+      mockHttpAuth.credentials.mockResolvedValue(serviceCreds as any);
+      mockAuth.isPrincipal.mockImplementation((c: any, t: string) => {
+        if (t === 'service') return c?.principal?.type === 'service';
+        if (t === 'user') return c?.principal?.type === 'user';
+        return false;
+      });
+      mockCatalogClient.getEntityByRef.mockResolvedValueOnce({
+        apiVersion: 'backstage.io/v1alpha1',
+        kind: 'Component',
+        metadata: {
+          name: 'my-ee',
+          annotations: {
+            'backstage.io/source-location':
+              'url:https://github.com/acme/widgets/blob/main/my-ee/my-ee.yml',
+          },
+        },
+        spec: { type: 'execution-environment' },
+      });
+
+      const mockFetch = jest.spyOn(global, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 204,
+        text: async () => '',
+      } as Response);
+
+      const testApp = await createEeBuildTestApp({
+        allowedExternalAccessSubjects: ['allowed-ci'],
+      });
+      await request(testApp)
+        .post('/ansible/ee/build')
+        .send(validBuildBody)
+        .expect(204);
+
+      expect(mockFetch).toHaveBeenCalled();
+      mockFetch.mockRestore();
+    });
+  });
+
   describe('GET /ansible/git/ci-activity (GitLab)', () => {
     it('should return 400 when host is not a safe hostname', async () => {
       const response = await request(app)

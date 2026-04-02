@@ -16,9 +16,11 @@
 import express from 'express';
 import Router from 'express-promise-router';
 import type { Config } from '@backstage/config';
+import { ResponseError } from '@backstage/errors';
 
 import { AAPJobTemplateProvider } from './providers/AAPJobTemplateProvider';
 import { AAPEntityProvider } from './providers/AAPEntityProvider';
+import type { BackstageCredentials } from '@backstage/backend-plugin-api';
 import {
   LoggerService,
   HttpAuthService,
@@ -48,11 +50,21 @@ import {
   buildInvalidRepositoryResults,
   resolveProvidersToRun,
   createRequireSuperuserMiddleware,
+  createRequireUserOrExternalAccessMiddleware,
+  EE_BUILD_CATALOG_CREDENTIALS_LOCALS_KEY,
   handleGitHubCIActivity,
   handleGitLabCIActivity,
+  getGitHubIntegrationForHost,
+  isSafeHostname,
+  isGitHubHostAllowedForProxy,
+  parseEeBuildRequestBody,
+  resolveGithubRepoForEeBuild,
 } from './helpers';
 import { EEEntityProvider } from './providers/EEEntityProvider';
-import { ScmClientFactory } from '@ansible/backstage-rhaap-common';
+import {
+  createGithubClientForWorkflowDispatch,
+  ScmClientFactory,
+} from '@ansible/backstage-rhaap-common';
 
 export async function createRouter(options: {
   logger: LoggerService;
@@ -109,6 +121,14 @@ export async function createRouter(options: {
     logger,
     allowedExternalAccessSubjects,
   });
+
+  const requireUserOrExternalAccessForEeBuild =
+    createRequireUserOrExternalAccessMiddleware({
+      httpAuth,
+      auth,
+      logger,
+      allowedExternalAccessSubjects,
+    });
 
   router.get('/health', (_, response) => {
     logger.info('PONG!');
@@ -288,6 +308,145 @@ export async function createRouter(options: {
       });
     }
   });
+
+  /**
+   * Triggers GitHub Actions `ee-build.yml` via workflow_dispatch.
+   * Authenticated Backstage user or allowlisted external-access (service) token; loads the EE entity
+   * with that principal's catalog token so RBAC applies.
+   */
+  router.post(
+    '/ansible/ee/build',
+    express.json(),
+    requireUserOrExternalAccessForEeBuild,
+    async (request, response) => {
+    let parsedBody;
+    try {
+      parsedBody = parseEeBuildRequestBody(request.body);
+    } catch (e) {
+      response.status(400).json({
+        error: e instanceof Error ? e.message : String(e),
+      });
+      return;
+    }
+
+    const credentials = (
+      response.locals as Record<string, BackstageCredentials | undefined>
+    )[EE_BUILD_CATALOG_CREDENTIALS_LOCALS_KEY];
+    if (!credentials) {
+      response
+        .status(500)
+        .json({ error: 'Internal error: missing auth context for EE build' });
+      return;
+    }
+
+    try {
+      const { token: catalogToken } = await auth.getPluginRequestToken({
+        onBehalfOf: credentials,
+        targetPluginId: 'catalog',
+      });
+
+      const entity = await catalogClient.getEntityByRef(parsedBody.entityRef, {
+        token: catalogToken,
+      });
+      if (!entity) {
+        response.status(404).json({
+          error:
+            'Entity not found or not visible with your credentials',
+        });
+        return;
+      }
+
+      const gh = resolveGithubRepoForEeBuild(entity, parsedBody.git_ref);
+
+      if (!isSafeHostname(gh.host)) {
+        response.status(400).json({ error: 'Invalid GitHub host in entity URL' });
+        return;
+      }
+      if (!isGitHubHostAllowedForProxy(config, gh.host)) {
+        response.status(400).json({
+          error: `Host '${gh.host}' is not allowed. Configure it under integrations.github.`,
+        });
+        return;
+      }
+
+      const { token: tokenFromConfig, apiBaseUrl } = getGitHubIntegrationForHost(
+        config,
+        gh.host,
+      );
+      const tokenFromHeader = request.headers.authorization?.replace(
+        /^Bearer\s+/i,
+        '',
+      );
+      const githubToken = tokenFromConfig || tokenFromHeader;
+      if (!githubToken) {
+        response.status(400).json({
+          error:
+            'No GitHub token available to dispatch the workflow. Configure integrations.github token or send Authorization: Bearer <GitHub PAT> with workflow scope.',
+        });
+        return;
+      }
+
+      const githubClient = createGithubClientForWorkflowDispatch({
+        logger,
+        host: gh.host,
+        token: githubToken,
+        apiBaseUrl,
+      });
+
+      const ghResp = await githubClient.dispatchActionsWorkflow(
+        gh.owner,
+        gh.repo,
+        'ee-build.yml',
+        gh.ref,
+        {
+          ee_dir: parsedBody.ee_dir,
+          ee_file_name: parsedBody.ee_file_name,
+          ee_registry: parsedBody.ee_registry,
+          ee_image_name: parsedBody.ee_image_name,
+        },
+      );
+
+      if (!ghResp.ok) {
+        logger.warn('[ansible/ee/build] GitHub workflow_dispatch failed', {
+          status: ghResp.status,
+          owner: gh.owner,
+          repo: gh.repo,
+          body: ghResp.bodyText,
+        });
+        const clientErr = ghResp.status >= 400 && ghResp.status < 500;
+        response.status(clientErr ? ghResp.status : 502).json({
+          error: `GitHub workflow_dispatch failed: ${ghResp.bodyText || ghResp.statusText}`,
+        });
+        return;
+      }
+
+      logger.info(
+        `[ansible/ee/build] Dispatched ee-build.yml for ${gh.owner}/${gh.repo}@${gh.ref}`,
+      );
+      response.status(204).send();
+    } catch (error) {
+      if (error instanceof ResponseError && error.response.status === 403) {
+        response.status(403).json({
+          error: 'Not allowed to read this entity with your credentials',
+        });
+        return;
+      }
+      const msg = error instanceof Error ? error.message : String(error);
+      if (
+        msg.includes('execution-environment') ||
+        msg.includes('GitHub') ||
+        msg.includes('source') ||
+        msg.includes('Component')
+      ) {
+        logger.debug(`[ansible/ee/build] Bad request: ${msg}`);
+        response.status(400).json({ error: msg });
+        return;
+      }
+      logger.error(`[ansible/ee/build] ${msg}`);
+      response.status(500).json({ error: msg });
+    }
+    },
+  );
 
   router.post(
     '/ansible/sync/from-aap/content',

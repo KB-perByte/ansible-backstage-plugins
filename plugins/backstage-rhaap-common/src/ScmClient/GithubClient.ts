@@ -449,4 +449,45 @@ export class GithubClient extends BaseScmClient {
     const url = this.buildUrl({ repo, ref, path: dirPath, type: 'dir' });
     return `url:${url}`;
   }
+
+  /**
+   * POST /repos/{owner}/{repo}/actions/workflows/{workflow_file}/dispatches
+   * Uses the same REST base URL, auth headers, and TLS behavior as other GitHub calls on this client.
+   */
+  async dispatchActionsWorkflow(
+    owner: string,
+    repo: string,
+    workflowFileName: string,
+    ref: string,
+    inputs: Record<string, string>,
+    signal?: AbortSignal,
+  ): Promise<{
+    ok: boolean;
+    status: number;
+    statusText: string;
+    bodyText: string;
+  }> {
+    const path = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(
+      repo,
+    )}/actions/workflows/${encodeURIComponent(
+      workflowFileName,
+    )}/dispatches`;
+    const url = `${this.apiUrl}${path}`;
+    const response = await this.doFetch(url, {
+      method: 'POST',
+      signal,
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/vnd.github+json',
+      },
+      body: JSON.stringify({ ref, inputs }),
+    });
+    const bodyText = await response.text();
+    return {
+      ok: response.ok,
+      status: response.status,
+      statusText: response.statusText,
+      bodyText,
+    };
+  }
 }
