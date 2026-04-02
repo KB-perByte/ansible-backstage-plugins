@@ -6,8 +6,8 @@ import type { Locator, Page } from '@playwright/test';
  * Auth: shared worker context (auth-context fixture).
  */
 
-const templateCardSelector =
-  '[data-testid*="-"], .MuiCard-root, article, .template';
+// More specific selector for template cards (prioritize .template class and article elements)
+const templateCardSelector = '.template, article.MuiCard-root, .MuiCard-root';
 
 async function assertNotLoginPage(page: Page) {
   await expect(page.getByText('Select a Sign-in method')).not.toBeVisible();
@@ -48,14 +48,17 @@ test.describe('Ansible self-service Create and execution tests', () => {
 
     const createBtn = await getCreateButton(page);
     if (!createBtn) {
-      return;
+      test.skip(true, 'No create button found - templates may not be loaded');
     }
 
     await createBtn.click();
     await page.waitForTimeout(1500);
 
     if (!page.url().includes('/create')) {
-      return;
+      test.skip(
+        true,
+        'Navigation to /create failed - create flow may be broken',
+      );
     }
 
     await expect(page.locator('main')).toBeVisible();
@@ -82,19 +85,22 @@ test.describe('Ansible self-service Create and execution tests', () => {
 
     const createBtn = await getCreateButton(page);
     if (!createBtn) {
-      return;
+      test.skip(true, 'No create button found - templates may not be loaded');
     }
 
     await createBtn.click();
     await page.waitForTimeout(1500);
 
     if (!page.url().includes('/create')) {
-      return;
+      test.skip(
+        true,
+        'Navigation to /create failed - create flow may be broken',
+      );
     }
 
     const body = page.locator('body');
     if ((await body.locator('form').count()) === 0) {
-      return;
+      test.skip(true, 'No form found on create page');
     }
 
     const actionBtn = body
@@ -102,7 +108,7 @@ test.describe('Ansible self-service Create and execution tests', () => {
       .filter({ hasText: /next|submit|create/i })
       .first();
     if ((await actionBtn.count()) === 0) {
-      return;
+      test.skip(true, 'No submit button found in form');
     }
 
     await actionBtn.click();
@@ -124,14 +130,17 @@ test.describe('Ansible self-service Create and execution tests', () => {
 
     const createBtn = await getCreateButton(page);
     if (!createBtn) {
-      return;
+      test.skip(true, 'No create button found - templates may not be loaded');
     }
 
     await createBtn.click();
     await page.waitForTimeout(1500);
 
     if (!page.url().includes('/create')) {
-      return;
+      test.skip(
+        true,
+        'Navigation to /create failed - create flow may be broken',
+      );
     }
 
     await page.goBack();
@@ -147,14 +156,17 @@ test.describe('Ansible self-service Create and execution tests', () => {
 
     const createBtn = await getCreateButton(page);
     if (!createBtn) {
-      return;
+      test.skip(true, 'No create button found - templates may not be loaded');
     }
 
     await createBtn.click();
     await page.waitForTimeout(1500);
 
     if (!page.url().includes('/create')) {
-      return;
+      test.skip(
+        true,
+        'Navigation to /create failed - create flow may be broken',
+      );
     }
 
     await expect(page.locator('header, h1, h2').first()).toBeAttached();

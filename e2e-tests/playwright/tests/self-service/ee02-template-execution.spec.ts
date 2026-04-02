@@ -11,12 +11,12 @@ const EE_TEMPLATE_URL =
 
 const EE_TEMPLATE_TITLE = 'Start from scratch';
 
-const REPO_SUFFIX = Math.floor(Math.random() * 100)
-  .toString()
-  .padStart(2, '0');
-const RANDOM_LETTER = String.fromCharCode(97 + Math.floor(Math.random() * 26));
-const REPO_NAME = `ee-repo-${RANDOM_LETTER}`;
-const EE_FILE_NAME = `ee-${REPO_SUFFIX}`;
+// Use timestamp for unique names to avoid collisions in parallel test runs
+const TIMESTAMP = Date.now();
+const REPO_SUFFIX = (TIMESTAMP % 100).toString().padStart(2, '0');
+const RANDOM_LETTER = String.fromCharCode(97 + (TIMESTAMP % 26));
+const REPO_NAME = `ee-repo-${RANDOM_LETTER}-${TIMESTAMP}`;
+const EE_FILE_NAME = `ee-${REPO_SUFFIX}-${TIMESTAMP}`;
 
 test.describe('Execution Environment Template Execution Tests', () => {
   test('Imports EE template via kebab menu and executes it from Create tab', async ({
@@ -92,7 +92,10 @@ test.describe('Execution Environment Template Execution Tests', () => {
 
       const body = await page.locator('body').innerText();
       if (!body.includes(EE_TEMPLATE_TITLE)) {
-        return;
+        test.skip(
+          true,
+          `Template "${EE_TEMPLATE_TITLE}" not found after import - import may have failed`,
+        );
       }
 
       const card = page

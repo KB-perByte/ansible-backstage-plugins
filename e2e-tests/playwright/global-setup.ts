@@ -1,4 +1,6 @@
 import { chromium, FullConfig } from '@playwright/test';
+import { mkdirSync } from 'fs';
+import { dirname } from 'path';
 import { loginAAP } from './utils/auth';
 
 /**
@@ -8,25 +10,35 @@ import { loginAAP } from './utils/auth';
 async function globalSetup(config: FullConfig) {
   const { baseURL, ignoreHTTPSErrors, viewport } = config.projects[0].use;
   const browser = await chromium.launch();
-  const context = await browser.newContext({
-    baseURL,
-    ignoreHTTPSErrors,
-    viewport,
-  });
-  const page = await context.newPage();
 
-  console.log('[Global Setup] Logging in to save authentication state...');
+  try {
+    const context = await browser.newContext({
+      baseURL,
+      ignoreHTTPSErrors,
+      viewport,
+    });
+    const page = await context.newPage();
 
-  // Login using our auth utility
-  await loginAAP(page);
+    console.log('[Global Setup] Logging in to save authentication state...');
 
-  // Save authentication state
-  const storageStatePath = 'playwright/.auth/user.json';
-  await context.storageState({ path: storageStatePath });
+    // Login using our auth utility
+    await loginAAP(page);
 
-  console.log('[Global Setup] Authentication state saved to', storageStatePath);
+    // Save authentication state
+    const storageStatePath = 'playwright/.auth/user.json';
 
-  await browser.close();
+    // Ensure directory exists
+    mkdirSync(dirname(storageStatePath), { recursive: true });
+
+    await context.storageState({ path: storageStatePath });
+
+    console.log(
+      '[Global Setup] Authentication state saved to',
+      storageStatePath,
+    );
+  } finally {
+    await browser.close();
+  }
 }
 
 export default globalSetup;

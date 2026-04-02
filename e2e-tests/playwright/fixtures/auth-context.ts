@@ -3,7 +3,6 @@ import { loginAAP } from '../utils/auth';
 
 // Shared context that persists across all tests in the worker
 let sharedContext: BrowserContext | null = null;
-let isAuthenticated = false;
 
 /**
  * Custom fixture that provides a shared authenticated browser context
@@ -57,7 +56,6 @@ export const test = base.extend<{ authenticatedContext: BrowserContext }>({
         }
 
         await loginPage.close();
-        isAuthenticated = true;
         console.log(
           '[Shared Context] ✓ Session will be preserved across all tests',
         );

@@ -70,7 +70,7 @@ export OAUTH_CLIENT_ID=your-client-id
 
 ## Test Structure
 
-```
+```text
 playwright/
 ├── tests/
 │   ├── self-service/    # Portal-specific tests
@@ -175,7 +175,7 @@ Install the [Playwright Test for VSCode](https://marketplace.visualstudio.com/it
 
 Tests are configured to run in CI with:
 
-- **Parallel execution** (4 workers)
+- **Serial execution** (single worker to share authenticated context)
 - **Auto-retries** (2 retries on failure)
 - **Video/screenshot** capture on failure
 - **JUnit/JSON** reports for CI integration

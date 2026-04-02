@@ -3,9 +3,10 @@ import { clickRhaapSignIn } from '../../utils/auth';
 
 /**
  * Debug test to see what's actually on the page after login
+ * Skipped by default - run explicitly with: npx playwright test login-debug
  */
 
-test('Debug - check page structure after auth', async ({ page }) => {
+test.skip('Debug - check page structure after auth', async ({ page }) => {
   // Go to the URL that the auth flow lands on
   await page.goto('/');
   await page.locator('main').waitFor({ state: 'visible', timeout: 30000 });
@@ -26,12 +27,16 @@ test('Debug - check page structure after auth', async ({ page }) => {
       .isVisible()
       .catch(() => false);
     if (loginPageVisible) {
-      await page
-        .locator('#pf-login-username-id')
-        .fill(process.env.AAP_USER_ID!);
-      await page
-        .locator('#pf-login-password-id')
-        .fill(process.env.AAP_USER_PASS!);
+      const aapUserId = process.env.AAP_USER_ID;
+      const aapUserPass = process.env.AAP_USER_PASS;
+
+      if (!aapUserId || !aapUserPass) {
+        console.log('AAP_USER_ID or AAP_USER_PASS not set, skipping login');
+        return;
+      }
+
+      await page.locator('#pf-login-username-id').fill(aapUserId);
+      await page.locator('#pf-login-password-id').fill(aapUserPass);
       await page.getByRole('button', { name: 'Log in' }).click();
       await page.waitForLoadState('networkidle', { timeout: 30000 });
     }

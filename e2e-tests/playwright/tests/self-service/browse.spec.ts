@@ -5,8 +5,8 @@ import { test, expect } from '../../fixtures/auth-context';
  * Auth: shared worker context (same pattern as login.spec.ts).
  */
 
-const templateCardSelector =
-  '[data-testid*="-"], .MuiCard-root, article, .template';
+// More specific selector for template cards (prioritize .template class and article elements)
+const templateCardSelector = '.template, article.MuiCard-root, .MuiCard-root';
 
 test.describe('Ansible self-service Browse Page Functional Tests', () => {
   test.beforeEach(async ({ page }) => {
@@ -132,14 +132,19 @@ test.describe('Ansible self-service Browse Page Functional Tests', () => {
     const cardCount = await page.locator(templateCardSelector).count();
 
     if (loading > 0) {
-      // loading state
+      // Wait for loading to complete
+      await expect(
+        page.locator('[data-testid="loading-templates"]'),
+      ).toHaveCount(0, { timeout: 30000 });
     } else if (cardCount > 0) {
-      // templates present
+      // Verify templates are present and visible
+      await expect(page.locator(templateCardSelector).first()).toBeVisible();
     } else if (
       bodyText.includes('No templates') ||
       bodyText.toLowerCase().includes('empty')
     ) {
-      // empty state
+      // Empty state is valid - verify empty state message is visible
+      await expect(page.locator('body')).toContainText(/No templates|empty/i);
     }
 
     await expect(page.locator('main')).toBeVisible();
