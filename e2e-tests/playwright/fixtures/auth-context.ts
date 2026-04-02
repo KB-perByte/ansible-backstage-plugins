@@ -17,7 +17,7 @@ export const test = base.extend<{ authenticatedContext: BrowserContext }>({
       if (!sharedContext) {
         console.log('[Shared Context] Creating persistent browser context...');
         sharedContext = await browser.newContext({
-          baseURL: process.env.BASE_URL || 'http://localhost:7007',
+          baseURL: process.env.BASE_URL || 'http://localhost:7071',
           ignoreHTTPSErrors: true,
           viewport: { width: 1920, height: 1080 },
         });

@@ -145,11 +145,12 @@ npx ts-node playwright/scripts/manual-login.ts
 - If user is already logged into AAP in browser → instant OAuth redirect
 - If not → AAP login page appears, but only ONCE
 
-**Implementation:**
+**Implementation:** `utils/auth-aap-first.ts` — `buildAapOAuthAuthorizeUrl()` builds `/o/authorize/` from `AAP_URL`, `BASE_URL`, `OAUTH_CLIENT_ID`, and optional `OAUTH_SCOPE` (see `e2e-tests/.env.example`).
 
 ```typescript
-// Navigate directly to AAP OAuth authorize URL
-const aapOAuthUrl = `https://34.226.249.151/o/authorize/?...`;
+import { buildAapOAuthAuthorizeUrl, loginAAPSessionFirst } from './utils/auth-aap-first';
+
+const aapOAuthUrl = buildAapOAuthAuthorizeUrl();
 await page.goto(aapOAuthUrl);
 
 // If already logged into AAP → automatic redirect back to portal

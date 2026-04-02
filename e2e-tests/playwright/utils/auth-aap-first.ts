@@ -1,5 +1,50 @@
 import { Page } from '@playwright/test';
 
+/** When `BASE_URL` is unset; keep in sync with `e2e-tests/.env.example`. */
+const DEFAULT_BASE_URL = 'http://localhost:7071';
+
+function stripTrailingSlashes(s: string): string {
+  return s.replace(/\/+$/, '');
+}
+
+function requireEnv(name: string): string {
+  const v = process.env[name];
+  if (!v?.trim()) {
+    throw new Error(
+      `[auth-aap-first] Missing required environment variable: ${name}`,
+    );
+  }
+  return v.trim();
+}
+
+/**
+ * Builds the AAP OAuth `/o/authorize/` URL used by the RHAAP auth provider.
+ * Must match the portal’s registered callback:
+ * `{BASE_URL}/api/auth/rhaap/handler/frame`
+ *
+ * Required env: `AAP_URL`, `OAUTH_CLIENT_ID`
+ * Optional: `BASE_URL` (default `http://localhost:7071`), `OAUTH_SCOPE` (default `read`)
+ */
+export function buildAapOAuthAuthorizeUrl(): string {
+  const aapBase = stripTrailingSlashes(requireEnv('AAP_URL'));
+  const portalBase = stripTrailingSlashes(
+    process.env.BASE_URL || DEFAULT_BASE_URL,
+  );
+  const clientId = requireEnv('OAUTH_CLIENT_ID');
+  const scope = (process.env.OAUTH_SCOPE || 'read').trim();
+
+  const redirectUri = `${portalBase}/api/auth/rhaap/handler/frame`;
+
+  const authorize = new URL('/o/authorize/', `${aapBase}/`);
+  authorize.searchParams.set('response_type', 'code');
+  authorize.searchParams.set('redirect_uri', redirectUri);
+  authorize.searchParams.set('scope', scope);
+  authorize.searchParams.set('client_id', clientId);
+  authorize.searchParams.set('approval_prompt', 'auto');
+
+  return authorize.href;
+}
+
 /**
  * Alternative authentication approach:
  * Navigate to AAP OAuth URL first, then to portal
@@ -8,20 +53,13 @@ import { Page } from '@playwright/test';
  * - If user is already logged into AAP in browser → automatic OAuth redirect
  * - If not logged in → AAP login page appears, user logs in once
  *
- * This is faster because it reuses AAP browser sessions
+ * Required env: `AAP_URL`, `OAUTH_CLIENT_ID`, `AAP_USER_ID`, `AAP_USER_PASS`
+ * (same `clientId` as `auth.providers.rhaap.development.clientId` in app-config)
  */
 export async function loginAAPSessionFirst(page: Page) {
   console.log('[Auth] Checking AAP session...');
 
-  // Navigate directly to AAP OAuth authorize URL
-  // This is the same URL the portal redirects to when you click "Sign In"
-  const aapOAuthUrl =
-    `https://34.226.249.151/o/authorize/?` +
-    `response_type=code&` +
-    `redirect_uri=https://192.168.124.108:443/api/auth/rhaap/handler/frame&` +
-    `scope=read write&` +
-    `client_id=${process.env.OAUTH_CLIENT_ID}&` +
-    `approval_prompt=auto`;
+  const aapOAuthUrl = buildAapOAuthAuthorizeUrl();
 
   await page.goto(aapOAuthUrl, { waitUntil: 'domcontentloaded' });
   console.log('[Auth] Navigated to AAP OAuth URL:', page.url());
@@ -35,7 +73,6 @@ export async function loginAAPSessionFirst(page: Page) {
   if (onLoginPage) {
     console.log('[Auth] AAP login required, filling credentials...');
 
-    // Fill in AAP credentials
     await page.locator('#pf-login-username-id').fill(process.env.AAP_USER_ID!);
     await page
       .locator('#pf-login-password-id')
@@ -47,8 +84,8 @@ export async function loginAAPSessionFirst(page: Page) {
     console.log('[Auth] Already logged into AAP, skipping login');
   }
 
-  // Check for OAuth authorization prompt
-  const baseUrl = new URL(process.env.BASE_URL || 'http://localhost:7007');
+  // Check for OAuth authorization prompt on AAP
+  const baseUrl = new URL(process.env.BASE_URL || DEFAULT_BASE_URL);
   const onAuthorizePage = page.url().includes('authorize');
 
   if (onAuthorizePage) {
@@ -70,15 +107,56 @@ export async function loginAAPSessionFirst(page: Page) {
     timeout: 30000,
   });
 
-  // Wait for portal to load
   await page.waitForLoadState('networkidle');
   console.log('[Auth] Redirected to portal:', page.url());
 
-  // Verify we're authenticated
-  await page
+  const backstageAuthorizeVisible = await page
+    .getByText('Authorize Ansible Automation Experience App')
+    .isVisible()
+    .catch(() => false);
+
+  if (backstageAuthorizeVisible) {
+    console.log(
+      '[Auth] Backstage authorization page detected, clicking Authorize...',
+    );
+    await page.getByRole('button', { name: 'Authorize' }).click();
+    await page.waitForLoadState('networkidle', { timeout: 30000 });
+    console.log('[Auth] After Backstage authorize, URL:', page.url());
+  }
+
+  const signInPromptVisible = await page
+    .getByText('Select a Sign-in method')
+    .isVisible()
+    .catch(() => false);
+
+  const url = page.url();
+  const onSelfService = url.includes('/self-service');
+  const mainVisible = await page.locator('main').isVisible().catch(() => false);
+
+  if (onSelfService && mainVisible && !signInPromptVisible) {
+    console.log('[Auth] Login successful ✓');
+    return;
+  }
+
+  const hasTemplatesNav = await page
     .getByText('Templates', { exact: true })
     .first()
-    .waitFor({ state: 'visible', timeout: 20000 });
+    .isVisible()
+    .catch(() => false);
+
+  if (hasTemplatesNav) {
+    console.log('[Auth] Login successful ✓');
+    return;
+  }
+
+  const templatesOrShell = page
+    .getByText('Templates', { exact: true })
+    .first()
+    .or(page.getByRole('link', { name: /templates/i }))
+    .or(page.locator('[href*="/self-service"]'))
+    .first();
+
+  await templatesOrShell.waitFor({ state: 'visible', timeout: 20000 });
 
   console.log('[Auth] Login successful ✓');
 }

@@ -41,15 +41,31 @@ yarn pw:test playwright/tests/self-service/login.spec.ts
 
 ### Environment Variables
 
-Set these environment variables before running tests:
+Copy `e2e-tests/.env.example` to `e2e-tests/.env` and fill in values. Playwright loads `.env` via `dotenv` in `playwright.config.ts`.
+
+| Variable | Required for | Description |
+| -------- | ------------ | ----------- |
+| `BASE_URL` | All portal tests | Origin of the Backstage app (e.g. `http://localhost:7071`). Used as Playwright `baseURL` and in OAuth `redirect_uri`. |
+| `AAP_USER_ID` | RHAAP login | AAP username for the sign-in form. |
+| `AAP_USER_PASS` | RHAAP login | AAP password for the sign-in form. |
+| `AAP_URL` | `loginAAPSessionFirst` / `buildAapOAuthAuthorizeUrl` only | AAP controller base URL (same as `auth.providers.rhaap.development.host`), e.g. `https://aap.example.com`. Not required for the default `loginAAP` flow (portal → Sign In → AAP). |
+| `OAUTH_CLIENT_ID` | `loginAAPSessionFirst` / `buildAapOAuthAuthorizeUrl` | OAuth client id registered in AAP for this portal; must match `auth.providers.rhaap.development.clientId` in app-config. |
+| `OAUTH_SCOPE` | Optional | Scope for `/o/authorize/` (default `read`). |
+| `EE_IMPORT_REPO_URL` | Optional | Template import URL for EE execution tests; see `.env.example`. |
+| `GH_USER_ID` / `GH_USER_PASS` / `AUTHENTICATOR_SECRET` | RHDH + GitHub | For RHDH specs that sign in via GitHub (including 2FA). |
+
+**Auth helpers**
+
+- `utils/auth.ts` — `loginAAP`: starts at the portal, clicks **Sign In**, completes AAP login. Needs `BASE_URL`, `AAP_USER_ID`, `AAP_USER_PASS`.
+- `utils/auth-aap-first.ts` — `loginAAPSessionFirst`: opens AAP OAuth authorize URL first (faster when already logged into AAP). Needs `BASE_URL`, `AAP_URL`, `OAUTH_CLIENT_ID`, `AAP_USER_ID`, `AAP_USER_PASS`, and optionally `OAUTH_SCOPE`.
 
 ```bash
-export BASE_URL=http://localhost:7007
+export BASE_URL=http://localhost:7071
 export AAP_USER_ID=your-username
 export AAP_USER_PASS=your-password
-export GH_USER_ID=your-github-username          # For RHDH tests
-export GH_USER_PASS=your-github-password        # For RHDH tests
-export AUTHENTICATOR_SECRET=your-2fa-secret     # For GitHub 2FA
+# For auth-aap-first only:
+export AAP_URL=https://your-aap-host
+export OAUTH_CLIENT_ID=your-client-id
 ```
 
 ## Test Structure
@@ -143,7 +159,7 @@ This shows:
 Generate tests by clicking in the browser:
 
 ```bash
-yarn pw:codegen http://localhost:7007
+yarn pw:codegen http://localhost:7071
 ```
 
 ### VS Code Extension
@@ -198,15 +214,9 @@ test.describe('Login Tests', () => {
 
 ## Next Steps
 
-This is a proof-of-concept for the login test. To complete the migration:
-
-1. ✅ Login test migrated
-2. ⏳ Migrate browse.cy.ts
-3. ⏳ Migrate create.cy.ts
-4. ⏳ Migrate remaining self-service tests
-5. ⏳ Migrate RHDH tests
-6. ⏳ Update CI pipelines
-7. ⏳ Remove Cypress
+1. ✅ Core self-service flows migrated to Playwright under `playwright/tests/self-service/`
+2. ⏳ RHDH specs: migrate `cypress/e2e/rhdh/*.cy.ts` to `playwright/tests/rhdh/`
+3. CI / removing Cypress: follow team policy when Playwright is the default runner
 
 ## Resources
 

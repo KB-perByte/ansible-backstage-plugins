@@ -27,10 +27,17 @@ export async function loginAAP(page: Page) {
     .catch(() => false);
 
   if (!signInMethodVisible) {
+    const url = page.url();
+    if (
+      url.includes('/self-service') &&
+      (await page.locator('main').isVisible().catch(() => false))
+    ) {
+      console.log('[Auth] Already authenticated (self-service) ✓');
+      return;
+    }
     console.log(
       '[Auth] Already logged in, checking for Templates navigation...',
     );
-    // Verify we're actually logged in
     const hasTemplates = await page
       .getByText('Templates', { exact: true })
       .first()
@@ -40,9 +47,8 @@ export async function loginAAP(page: Page) {
     if (hasTemplates) {
       console.log('[Auth] Already authenticated ✓');
       return;
-    } else {
-      console.log('[Auth] Not on login page but not authenticated either');
     }
+    console.log('[Auth] Not on login page but not authenticated either');
   }
 
   console.log('[Auth] Clicking Sign In button...');
@@ -134,34 +140,49 @@ export async function loginAAP(page: Page) {
 
   console.log('[Auth] Current URL after auth:', page.url());
 
-  // Check if we're already on an authenticated page (like /self-service/catalog)
-  // If so, Templates navigation should already be visible
-  const hasTemplatesAlready = await page
+  const signInPromptVisible = await page
+    .getByText('Select a Sign-in method')
+    .isVisible()
+    .catch(() => false);
+
+  // OAuth often lands on /self-service/catalog (or similar) — treat as logged in
+  // when main is visible and the sign-in gate is not shown (label may not be "Templates" on all routes)
+  const url = page.url();
+  const onSelfService = url.includes('/self-service');
+  const mainVisible = await page.locator('main').isVisible().catch(() => false);
+
+  if (onSelfService && mainVisible && !signInPromptVisible) {
+    console.log('[Auth] Authenticated on self-service app ✓');
+    return;
+  }
+
+  const hasTemplatesNav = await page
     .getByText('Templates', { exact: true })
     .first()
     .isVisible()
     .catch(() => false);
 
-  if (hasTemplatesAlready) {
+  if (hasTemplatesNav) {
     console.log(
       '[Auth] Already on authenticated page with Templates navigation ✓',
     );
     return;
   }
 
-  // If not, navigate to home and verify
   console.log('[Auth] Navigating to home to verify authentication...');
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(1000);
 
   console.log('[Auth] Final URL:', page.url());
 
-  // Verify successful login - wait for Templates navigation
-  console.log('[Auth] Waiting for Templates navigation...');
-  await page
+  console.log('[Auth] Waiting for Templates navigation or self-service shell...');
+  const templatesOrShell = page
     .getByText('Templates', { exact: true })
     .first()
-    .waitFor({ state: 'visible', timeout: 20000 });
+    .or(page.getByRole('link', { name: /templates/i }))
+    .or(page.locator('[href*="/self-service"]'))
+    .first();
+  await templatesOrShell.waitFor({ state: 'visible', timeout: 20000 });
 
   console.log('[Auth] Login successful ✓');
 }
@@ -216,7 +237,7 @@ export async function loginGitHub(page: Page) {
   await page.locator('#password').fill(process.env.GH_USER_PASS!);
 
   // Click sign in
-  await page.getByRole('button', { value: 'Sign in' }).click();
+  await page.getByRole('button', { name: 'Sign in' }).click();
 
   // Handle 2FA if required
   const totpFieldVisible = await page

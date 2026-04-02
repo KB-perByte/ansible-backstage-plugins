@@ -34,7 +34,7 @@ export default defineConfig({
 
   use: {
     // Base URL from environment variable
-    baseURL: process.env.BASE_URL || 'http://localhost:7007',
+    baseURL: process.env.BASE_URL || 'http://localhost:7071',
 
     // Trace on failure - better than Cypress video
     trace: 'on-first-retry',
