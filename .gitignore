@@ -104,3 +104,7 @@ videos/
 # Screenshots
 screenshots/
 **/screenshots
+
+# Local session context (not for public repo)
+.claude/CONTEXT.md
+docs/research/.local/

@@ -22,9 +22,6 @@ import { CollectionDetailsPage } from '../CollectionsCatalog/CollectionDetailsPa
 const SetupWizard = lazy(() =>
   import('../SetupWizard').then(m => ({ default: m.SetupWizard })),
 );
-const GeneralPage = lazy(() =>
-  import('../AdminPages/GeneralPage').then(m => ({ default: m.GeneralPage })),
-);
 const ConnectionsPage = lazy(() =>
   import('../AdminPages/ConnectionsPage').then(m => ({
     default: m.ConnectionsPage,
@@ -103,16 +100,6 @@ export const RouteView = () => {
         />
 
         {/* Admin pages — permission-gated */}
-        <Route
-          path="admin/general"
-          element={
-            <RequirePermission permission={portalAdminViewPermission}>
-              <Suspense fallback={<Progress />}>
-                <GeneralPage />
-              </Suspense>
-            </RequirePermission>
-          }
-        />
         <Route
           path="admin/connections"
           element={

@@ -2,7 +2,7 @@
 
 **Jira**: ANSTRAT-1806
 **Date**: 2026-03-24
-**Status**: Implemented — Verified with E2E tests
+**Status**: In Progress — Phases 1-3 complete, Phase 4 partial, Phase 7 mostly done
 
 ---
 
@@ -321,7 +321,7 @@ Admin enables "Local Admin Access (Bootstrap)" toggle in General settings
   - "Go to login" button (primary, blue)
 - **FR-9.2**: "Go to login" logs the user out and redirects to the sign-in page.
 
-### FR-10: Post-Setup — General Page (Screen 11)
+### FR-10: Post-Setup — General Page (Mockup 13)
 
 - **FR-10.1**: Route: `/admin/general` (sidebar: ADMINISTRATION > General).
 - **FR-10.2**: **Security & Access Control** card:
@@ -329,7 +329,7 @@ Admin enables "Local Admin Access (Bootstrap)" toggle in General settings
   - Description: "Allow authentication using the built-in 'admin' account. Keep this disabled unless you are performing initial setup or need emergency recovery when SSO is unavailable."
 - **FR-10.3**: Toggle change calls `PUT /api/rhaap-backend/general/local-admin`.
 
-### FR-11: Post-Setup — Connections Page (Screen 12)
+### FR-11: Post-Setup — Connections Page (Mockup 14)
 
 - **FR-11.1**: Route: `/admin/connections` (sidebar: ADMINISTRATION > Connections).
 - **FR-11.2**: Title: "Connections", subtitle: "Manage integrations with external platforms for content discovery and user authentication (SSO)".
@@ -367,8 +367,8 @@ Define in `backstage-rhaap-common/src/admin/permissions.ts`:
 
 | Permission | ID | Type | Used For |
 |------------|-----|------|----------|
-| `portalAdminViewPermission` | `ansible.admin.view` | `BasicPermission` | View admin pages (General, Connections, RBAC), see ADMINISTRATION sidebar items |
-| `portalAdminWritePermission` | `ansible.admin.write` | `BasicPermission` | Modify settings (toggle local admin, edit connections, trigger sync, run setup wizard) |
+| `portalAdminViewPermission` | `ansible.admin.view` | `createPermission({ action: 'read' })` | View admin pages (General, Connections, RBAC), see ADMINISTRATION sidebar items |
+| `portalAdminWritePermission` | `ansible.admin.write` | `createPermission({ action: 'create' })` | Modify settings (toggle local admin, edit connections, trigger sync, run setup wizard) |
 
 ### 7.3 Frontend Usage
 
@@ -572,7 +572,7 @@ Single-provider sign-in page with conditional rendering:
 
 ## 8. Extensible SCM Provider Architecture
 
-### 7.1 Design Principle
+### 8.1 Design Principle
 
 AAP is the **primary and permanent IDP**. SCM providers (GitHub, GitLab, and future Bitbucket) serve two secondary roles:
 1. **Content Discovery**: Service-account PAT used to discover Ansible content (collections, EE definitions) from SCM organizations.
@@ -580,7 +580,7 @@ AAP is the **primary and permanent IDP**. SCM providers (GitHub, GitLab, and fut
 
 The architecture MUST make it trivial to add new SCM providers (e.g., Bitbucket) without modifying the core setup wizard framework or backend API structure.
 
-### 7.2 Provider Registry Pattern
+### 8.2 Provider Registry Pattern
 
 Each SCM provider is defined by a provider descriptor:
 
@@ -607,7 +607,7 @@ interface SCMProviderDescriptor {
 }
 ```
 
-### 7.3 Adding a New SCM Provider
+### 8.3 Adding a New SCM Provider
 
 To add Bitbucket support in the future:
 
@@ -617,7 +617,7 @@ To add Bitbucket support in the future:
 
 The `POST /api/rhaap-backend/setup/scm/:provider` API already accepts any provider ID. The `portal_config` table uses category `scm_<provider>` which naturally extends.
 
-### 7.4 Config Paths Consumed by Community Plugins
+### 8.4 Config Paths Consumed by Community Plugins
 
 These are the exact Backstage config paths that community SCM plugins read (confirmed from source analysis of `@backstage/integration` and community-plugins repo). Our `DatabaseConfigSource` MUST provide these:
 
@@ -675,18 +675,16 @@ auth:
         clientSecret: ...
 ```
 
-### 7.5 AAP as Primary IDP — Architectural Guarantee
+### 8.5 AAP as Primary IDP — Architectural Guarantee
 
 - AAP OAuth (`auth.providers.rhaap`) is always configured and is the primary sign-in method.
 - SCM auth providers are **supplementary** — they enable "Link SCM Account" functionality for pushing scaffolded repos, NOT for portal login.
 - The `signInPage` config always points to `rhaap`. SCM providers do not appear on the login page.
 - The `auth.providers.github/gitlab` are only used when a user triggers a scaffolder action that requires SCM write access — Backstage's `OAuthRequestDialog` handles the consent flow.
 
-## 8. Security Considerations
+## 9. Security Considerations
 
-> **Note**: Section numbers 8–17 continue from here. Section 7 (Extensible SCM Architecture) was inserted above.
-
-### 7.1 Secrets at Rest (Database)
+### 9.1 Secrets at Rest (Database)
 
 | Control | Implementation |
 |---------|---------------|
@@ -697,7 +695,7 @@ auth:
 | **Key rotation** | Re-encrypt all secrets when `BACKEND_SECRET` changes (migration utility provided) |
 | **Database access** | PostgreSQL user has least-privilege (SELECT/INSERT/UPDATE on `portal_*` tables only) |
 
-### 7.2 Secrets in Transit (Network)
+### 9.2 Secrets in Transit (Network)
 
 | Control | Implementation |
 |---------|---------------|
@@ -708,7 +706,7 @@ auth:
 | **CORS** | Inherits RHDH's CORS policy — same-origin requests only |
 | **CSRF protection** | Backstage's built-in token-based auth (`Authorization: Bearer <backstage-token>`) prevents CSRF |
 
-### 7.3 Input Validation & Sanitization
+### 9.3 Input Validation & Sanitization
 
 | Control | Implementation |
 |---------|---------------|
@@ -719,7 +717,7 @@ auth:
 | **Request size** | Body size limited to existing `10mb` Backstage default. Config payloads are small (<1KB). |
 | **Rate limiting** | Setup APIs limited to authenticated admin users; POST /setup/apply is idempotent |
 
-### 7.4 Authentication & Authorization
+### 9.4 Authentication & Authorization
 
 | Control | Implementation |
 |---------|---------------|
@@ -729,7 +727,7 @@ auth:
 | **Setup lockout** | Setup APIs (`POST /setup/*`) return 403 after setup is complete unless caller has admin RBAC role |
 | **Session handling** | Backstage JWT tokens with configurable signing key. Tokens invalidated on logout. |
 
-### 7.5 Secret Lifecycle
+### 9.5 Secret Lifecycle
 
 ```
 Creation:  User input → HTTPS → Backend validates → encrypt(value, BACKEND_SECRET) → DB
@@ -739,9 +737,9 @@ Deletion:  Row deleted from portal_config → no soft delete for secrets
 Frontend:  GET /connections → returns { "hasClientSecret": true, "clientSecret": "********" }
 ```
 
-## 8. Data Model
+## 10. Data Model
 
-### 8.1 Database Tables
+### 10.1 Database Tables
 
 Migrations follow the RHDH plugin pattern (Knex.js, timestamped migration files):
 
@@ -767,7 +765,7 @@ CREATE TABLE portal_config (
 );
 ```
 
-### 8.2 Config Key Mapping
+### 10.2 Config Key Mapping
 
 The `portal_config` table stores values that map to Backstage config paths. The `DatabaseConfigSource` reads these on startup and builds the config tree.
 
@@ -806,9 +804,9 @@ The `portal_config` table stores values that map to Backstage config paths. The 
 
 **Extensible pattern**: Any future SCM provider (e.g., Bitbucket) follows the same `scm_<provider>` category convention with keys like `scm.bitbucket.provider_url`, `scm.bitbucket.token`, etc. The `DatabaseConfigSource` config tree builder handles the mapping generically via the `SCMProviderDescriptor.configMapping` structure defined in Section 7.2.
 
-## 9. Configuration Merging Strategy
+## 11. Configuration Merging Strategy
 
-### 9.1 Backstage Config System Internals (Based on Source Analysis)
+### 11.1 Backstage Config System Internals (Based on Source Analysis)
 
 From analysis of `@backstage/config-loader` (`packages/config-loader/src/sources/`):
 
@@ -829,7 +827,7 @@ From analysis of `@backstage/plugin-auth-node` (`createOAuthProviderFactory.ts`)
 - The returned authenticator context is **cached for the lifetime of the process**.
 - There is **no mechanism** to re-initialize auth providers without a restart.
 
-### 9.2 Solution: Custom `DatabaseConfigSource`
+### 11.2 Solution: Custom `DatabaseConfigSource`
 
 We implement a custom `ConfigSource` that reads from the `portal_config` database table at backend startup:
 
@@ -848,7 +846,7 @@ export class DatabaseConfigSource implements ConfigSource {
 }
 ```
 
-### 9.3 Integration Point: Root Config Service Override
+### 11.3 Integration Point: Root Config Service Override
 
 RHDH provides `ENABLE_ROOT_CONFIG_OVERRIDE=true` which allows us to register a custom `rootConfig` service factory. Our backend module overrides it to:
 
@@ -859,7 +857,7 @@ RHDH provides `ENABLE_ROOT_CONFIG_OVERRIDE=true` which allows us to register a c
 
 This means **all plugins** (including community GitHub/GitLab integrations and auth providers) see the merged config — completely transparent.
 
-### 9.4 Config Merge Order
+### 11.4 Config Merge Order
 
 ```
 app-config.yaml (base, static, from Helm chart ConfigMap)
@@ -870,7 +868,7 @@ Database config (portal_config table, loaded by DatabaseConfigSource)
   = Final Config (what all plugins receive via coreServices.rootConfig)
 ```
 
-### 9.5 Why Restart is Required
+### 11.5 Why Restart is Required
 
 | Reason | Detail |
 |--------|--------|
@@ -885,17 +883,17 @@ Database config (portal_config table, loaded by DatabaseConfigSource)
 
 For the RHAAP auth provider specifically, we modify `authenticator.ts` to read config from DB dynamically (Section 3A.6), which means AAP login works immediately after config save without restart. Community SCM auth providers still require restart.
 
-### 9.6 Local Development Considerations
+### 11.6 Local Development Considerations
 
 - `better-sqlite3` with `:memory:` connection loses data on restart.
 - **Recommendation**: Use file-based SQLite for local dev (`connection: './portal-dev.sqlite3'`) so config survives restarts.
 - Alternatively, continue using `app-config.local.yaml` for local development — the setup wizard is primarily a production feature.
 
-## 10. API Specification
+## 12. API Specification
 
 All APIs follow REST conventions. Every endpoint that modifies state is idempotent (safe to retry). This enables both UI-driven setup and config-as-code automation.
 
-### 10.1 Setup APIs
+### 12.1 Setup APIs
 
 ```
 GET  /api/rhaap-backend/setup/status
@@ -964,7 +962,7 @@ POST /api/rhaap-backend/setup/batch
   Note: Atomic — all-or-nothing. If any section fails validation, nothing is saved.
 ```
 
-### 10.2 Admin APIs (Post-Setup)
+### 12.2 Admin APIs (Post-Setup)
 
 ```
 GET  /api/rhaap-backend/connections
@@ -1022,7 +1020,7 @@ POST /api/rhaap-backend/connections/:type/sync
   → 404: { error: "Provider not configured" }
 ```
 
-### 10.3 Config-as-Code: Full Automation Example
+### 12.3 Config-as-Code: Full Automation Example
 
 ```bash
 # 1. Get admin credentials (from K8s secret or RHEL config file)
@@ -1073,7 +1071,7 @@ curl -X POST https://portal.example.com/api/rhaap-backend/setup/apply \
 kubectl rollout restart deployment/rhaap-portal
 ```
 
-### 10.4 Authorization Model
+### 12.4 Authorization Model
 
 | API Group | During Setup | Post-Setup |
 |-----------|-------------|------------|
@@ -1085,9 +1083,9 @@ kubectl rollout restart deployment/rhaap-portal
 | `PUT /general/*` | — | RBAC admin only |
 | `POST /connections/*/sync` | — | RBAC admin only |
 
-## 11. OpenAPI Specification & API Contract
+## 13. OpenAPI Specification & API Contract
 
-### 11.1 Requirement
+### 13.1 Requirement
 
 The `backstage-rhaap-backend` plugin MUST have a formal OpenAPI 3.1 specification that:
 1. Documents every REST API endpoint (setup, admin, connections, sync)
@@ -1095,14 +1093,14 @@ The `backstage-rhaap-backend` plugin MUST have a formal OpenAPI 3.1 specificatio
 3. Is validated against the actual implementation in CI
 4. Serves as the source of truth for typed Express routers, client SDKs, and agentic AI integration
 
-### 11.2 Backstage OpenAPI Pattern
+### 13.2 Backstage OpenAPI Pattern
 
 Backstage provides `@backstage/backend-openapi-utils` which offers:
 - **Typed Express routers** generated from OpenAPI spec — compile-time type safety for request/response shapes
 - **Runtime request validation** via `express-openapi-validator` — rejects malformed requests automatically
 - **Code generation** via `backstage-cli package schema openapi generate` — generates `openapi.generated.ts` from `openapi.yaml`
 
-### 11.3 Implementation
+### 13.3 Implementation
 
 ```
 plugins/backstage-rhaap-backend/
@@ -1130,7 +1128,7 @@ export async function createRouter(options: RouterOptions): Promise<Router> {
 }
 ```
 
-### 11.4 CI Validation Tooling
+### 13.4 CI Validation Tooling
 
 The following checks MUST run in CI to ensure the OpenAPI spec matches the implementation:
 
@@ -1142,7 +1140,7 @@ The following checks MUST run in CI to ensure the OpenAPI spec matches the imple
 | **Spec lint** | `spectral` or `redocly lint` | CI. Validates OpenAPI spec follows best practices. |
 | **Breaking change detection** | `oasdiff` or `openapi-diff` | CI on PR. Detects breaking API changes and requires explicit approval. |
 
-### 11.5 Agentic AI Readiness
+### 13.5 Agentic AI Readiness
 
 The API design follows principles that enable future agentic AI integration (MCP servers, AI assistants, LLM tool-calling):
 
@@ -1156,7 +1154,7 @@ The API design follows principles that enable future agentic AI integration (MCP
 | **Error taxonomy** | Standard HTTP codes + structured `{ error: string, errorCode: string, details?: any }` body |
 | **Batch support** | `POST /setup/batch` accepts full config in one call for atomic setup |
 
-### 11.6 Batch Setup API (Config-as-Code + AI Agents)
+### 13.6 Batch Setup API (Config-as-Code + AI Agents)
 
 In addition to the granular setup APIs (Section 10.1), provide a batch endpoint:
 
@@ -1190,7 +1188,7 @@ POST /api/rhaap-backend/setup/batch
 
 This enables single-call provisioning from CI/CD pipelines, AI agent tool-calling with one function invocation, and declarative config-as-code.
 
-### 11.7 OpenAPI Spec Availability
+### 13.7 OpenAPI Spec Availability
 
 The OpenAPI spec MUST be accessible at runtime and in the repository:
 
@@ -1216,9 +1214,9 @@ spec:
     $text: ./src/schema/openapi.yaml
 ```
 
-## 12. Package Structure (Consolidated)
+## 14. Package Structure (Consolidated)
 
-### 12.1 Approach
+### 14.1 Approach
 
 Instead of creating new frontend/common packages, we extend existing ones and create only one new backend plugin:
 
@@ -1229,7 +1227,7 @@ Instead of creating new frontend/common packages, we extend existing ones and cr
 | **EXTEND** | `plugins/backstage-rhaap-common` | Add admin types, permissions, constants to existing shared lib |
 | **MODIFY** | `plugins/auth-backend-module-rhaap-provider` | DB-backed config hot-reload |
 
-### 12.2 New Backend Plugin: `backstage-rhaap-backend`
+### 14.2 New Backend Plugin: `backstage-rhaap-backend`
 
 ```
 plugins/backstage-rhaap-backend/
@@ -1260,7 +1258,7 @@ plugins/backstage-rhaap-backend/
 │       └── scmProviders.ts            # SCM provider descriptors
 ```
 
-### 12.3 Frontend Changes: `self-service` Plugin (Existing)
+### 14.3 Frontend Changes: `self-service` Plugin (Existing)
 
 New components added in isolated directories — no changes to existing components:
 
@@ -1299,7 +1297,7 @@ plugins/self-service/src/
     └── gitlabProvider.tsx
 ```
 
-### 12.4 Common Types: `backstage-rhaap-common` (Existing)
+### 14.4 Common Types: `backstage-rhaap-common` (Existing)
 
 ```
 plugins/backstage-rhaap-common/src/
@@ -1311,15 +1309,15 @@ plugins/backstage-rhaap-common/src/
 │   └── constants.ts                    # Config keys, categories, SCM provider IDs
 ```
 
-## 13. Dynamic Plugin Loading Support
+## 15. Dynamic Plugin Loading Support
 
-### 13.1 Backend: `backstage-rhaap-backend`
+### 15.1 Backend: `backstage-rhaap-backend`
 
 - `package.json`: `"backstage": { "role": "backend-plugin", "pluginId": "rhaap-backend" }`
 - `export-dynamic` script for RHDH packaging
 - Registered in Helm chart `values.yaml` under `global.dynamic.plugins`
 
-### 13.2 Frontend: Existing `self-service` Plugin
+### 15.2 Frontend: Existing `self-service` Plugin
 
 New exports (`SetupWizardPage`, `SetupGate`, `GeneralPage`, etc.) are added to the existing self-service plugin's dynamic plugin config:
 
@@ -1358,7 +1356,7 @@ ansible.plugin-backstage-self-service:
       icon: group
 ```
 
-### 13.3 New Backend Plugin Helm Entry
+### 15.3 New Backend Plugin Helm Entry
 
 ```yaml
 # values.yaml — add new backend plugin
@@ -1366,7 +1364,7 @@ ansible.plugin-backstage-self-service:
   disabled: false
 ```
 
-## 13. Non-Functional Requirements
+## 16. Non-Functional Requirements
 
 - **NFR-1**: Setup wizard completable in under 5 minutes by an experienced admin.
 - **NFR-2**: Secrets encrypted at rest using AES-256-GCM with versioned ciphertext format.
@@ -1381,7 +1379,7 @@ ansible.plugin-backstage-self-service:
 - **NFR-11**: All API responses use consistent envelope pattern (`{ success, data?, error? }`) for agentic AI compatibility.
 - **NFR-12**: Batch API endpoint enables single-call provisioning for CI/CD and AI agents.
 
-## 14. Open Questions
+## 17. Open Questions
 
 | # | Question | Status |
 |---|----------|--------|
@@ -1392,7 +1390,7 @@ ansible.plugin-backstage-self-service:
 | 5 | For local dev, should we default to file-based SQLite (survives restarts) instead of in-memory? | **Resolved**: Yes — use file-based SQLite (e.g., `./portal-dev.sqlite3`) for local dev so config survives restarts. |
 | 6 | Should the DatabaseConfigSource support periodic re-reads for hot-reload? | **Resolved**: RHAAP auth reads from DB dynamically (Section 3A.6). DatabaseConfigSource reads once at startup. Registry toggles read by our catalog providers directly. |
 
-## 15. Dependencies
+## 18. Dependencies
 
 | Dependency | Version | Purpose |
 |------------|---------|---------|
@@ -1405,7 +1403,7 @@ ansible.plugin-backstage-self-service:
 | `@backstage/backend-openapi-utils` | latest | Typed OpenAPI router, request/response validation |
 | `knex` | (via Backstage `coreServices.database`) | Database access |
 
-## 16. Acceptance Criteria
+## 19. Acceptance Criteria
 
 1. A freshly deployed portal boots into setup mode and shows the setup wizard.
 2. Admin can complete all 5 steps via UI and submit the configuration.

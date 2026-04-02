@@ -23,8 +23,15 @@ export const localAdminAuthenticator = createProxyAuthenticator({
   }),
 
   initialize({ config }: { config: Config }) {
+    // The config received here is at the provider level (auth.providers.local-admin).
+    // Backstage nests provider config under environment keys (e.g., "development"),
+    // so the password lives at config.<env>.password rather than config.password.
+    const envConfig =
+      config.getOptionalConfig('development') ??
+      config.getOptionalConfig('production');
     const devPassword =
       config.getOptionalString('password') ??
+      envConfig?.getOptionalString('password') ??
       process.env.PORTAL_ADMIN_PASSWORD;
     const hashFromEnv = process.env.PORTAL_ADMIN_PASSWORD_HASH;
     return { devPassword, hashFromEnv };

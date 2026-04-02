@@ -9,7 +9,7 @@ jest.mock('@backstage/core-components', () => ({
     <div data-testid="mock-signin-page">
       <div>Title: {props.title}</div>
       <div>
-        {props.providers.map((p: any, i: number) => (
+        {props.providers?.map((p: any, i: number) => (
           <span key={i} data-testid={`provider-${typeof p === 'string' ? p : p.id}`}>
             {typeof p === 'string' ? p : p.title}
           </span>
@@ -19,6 +19,12 @@ jest.mock('@backstage/core-components', () => ({
   )),
   ProxiedSignInPage: jest.fn(props => (
     <div data-testid="mock-proxied-signin">Provider: {props.provider}</div>
+  )),
+}));
+
+jest.mock('./LocalAdminLoginCard', () => ({
+  LocalAdminLoginCard: jest.fn(() => (
+    <div data-testid="mock-local-admin-card">Local Admin Card</div>
   )),
 }));
 
@@ -34,9 +40,12 @@ describe('SignInPage', () => {
 
   beforeEach(() => jest.clearAllMocks());
 
-  it('shows ProxiedSignInPage with local-admin during setup', async () => {
+  it('Mode 1: auto-login during initial setup (setupComplete=false, localAdmin=true)', async () => {
     global.fetch = jest.fn().mockResolvedValue({
-      json: () => Promise.resolve({ data: { localAdminEnabled: true } }),
+      json: () =>
+        Promise.resolve({
+          data: { setupComplete: false, localAdminEnabled: true },
+        }),
     });
     await render(<SignInPage onSignInSuccess={mockOnSignInSuccess} />);
     await waitFor(() => {
@@ -45,15 +54,38 @@ describe('SignInPage', () => {
     expect(screen.getByText('Provider: local-admin')).toBeInTheDocument();
   });
 
-  it('shows AAP OAuth after setup complete', async () => {
+  it('Mode 2: dual mode post-setup (setupComplete=true, localAdmin=true)', async () => {
     global.fetch = jest.fn().mockResolvedValue({
-      json: () => Promise.resolve({ data: { localAdminEnabled: false } }),
+      json: () =>
+        Promise.resolve({
+          data: { setupComplete: true, localAdminEnabled: true },
+        }),
+    });
+    await render(<SignInPage onSignInSuccess={mockOnSignInSuccess} />);
+    await waitFor(() => {
+      expect(screen.getByTestId('mock-local-admin-card')).toBeInTheDocument();
+    });
+    // Should also show AAP OAuth card (as a button, not auto-authenticating)
+    expect(screen.getByText('Ansible Automation Platform')).toBeInTheDocument();
+    expect(screen.getByText('Sign In')).toBeInTheDocument();
+    // Should NOT show ProxiedSignInPage (no auto-login)
+    expect(screen.queryByTestId('mock-proxied-signin')).not.toBeInTheDocument();
+  });
+
+  it('Mode 3: AAP OAuth only (localAdmin=false)', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      json: () =>
+        Promise.resolve({
+          data: { setupComplete: true, localAdminEnabled: false },
+        }),
     });
     await render(<SignInPage onSignInSuccess={mockOnSignInSuccess} />);
     await waitFor(() => {
       expect(screen.getByTestId('mock-signin-page')).toBeInTheDocument();
     });
     expect(screen.getByTestId('provider-rhaap')).toBeInTheDocument();
+    expect(screen.queryByTestId('mock-local-admin-card')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('mock-proxied-signin')).not.toBeInTheDocument();
   });
 
   it('defaults to setup mode when backend unreachable', async () => {

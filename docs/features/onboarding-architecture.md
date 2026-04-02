@@ -27,36 +27,44 @@ The Ansible Self-Service Portal includes a day-0 setup wizard that guides admini
 
 ## Authentication Modes
 
-The sign-in page has two modes controlled by `localAdminEnabled` in the database:
+The sign-in page has three modes controlled by `setupComplete` and `localAdminEnabled` in the database:
 
 | Mode | When | What Shows | How It Works |
 |------|------|-----------|-------------|
-| **Setup** | `localAdminEnabled=true` (fresh install) | Auto-login via `ProxiedSignInPage` | `local-admin` ProxyAuthenticator issues Backstage user JWT for `user:default/admin` |
-| **Normal** | `localAdminEnabled=false` (after setup) | AAP OAuth login | Standard OAuth redirect to AAP, auto-redirect with `auto` flag |
+| **Setup** | `setupComplete=false`, `localAdminEnabled=true` | Auto-login via `ProxiedSignInPage` | `local-admin` ProxyAuthenticator auto-authenticates as `user:default/admin`. No password prompt — redirects straight to setup wizard |
+| **Dual** | `setupComplete=true`, `localAdminEnabled=true` | Local Admin card (password form) + AAP OAuth card | Admin chooses between local admin login (with password) or AAP OAuth. Used for emergency recovery. Logout works correctly — no auto-re-authentication |
+| **Normal** | `localAdminEnabled=false` | AAP OAuth only | Standard OAuth redirect to AAP, auto-redirect with `auto` flag |
 
 The `local-admin` provider:
 - Uses Backstage's `createProxyAuthenticator` pattern
 - Issues proper user JWTs (`vnd.backstage.user`, ES256 signed)
 - Auto-authenticates on GET `/refresh` (like guest provider) for token lifecycle
-- Validates password when credentials are explicitly provided via headers
-- Password source: `PORTAL_ADMIN_PASSWORD` env var or `auth.providers.local-admin.<env>.password` config
+- Validates password when credentials are explicitly provided (POST with username/password)
+- Password source: `PORTAL_ADMIN_PASSWORD_HASH` env var (bcrypt, production) or `auth.providers.local-admin.<env>.password` config (plain text, local dev)
 
 ## Setup Flow
 
 ```
 1. Portal boots with onboarding.enabled=true
-2. Sign-in page detects localAdminEnabled=true → ProxiedSignInPage auto-login
-3. RootRedirect detects setupComplete=false → redirects to /self-service/setup
-4. Admin completes 5-step wizard:
+2. Sign-in page detects setupComplete=false + localAdminEnabled=true → Mode 1 (auto-login)
+3. ProxiedSignInPage auto-authenticates as user:default/admin
+4. SetupGate detects setupComplete=false → redirects to /self-service/setup
+5. Admin completes 5-step wizard:
    Step 1: Overview & Prerequisites
    Step 2: Connect AAP (URL, PAT, OAuth Client ID/Secret)
    Step 3: Connect Registries (PAH, Certified, Validated, Galaxy)
    Step 4: Connect Source Control (GitHub/GitLab — optional)
    Step 5: Review & Apply
-5. "Apply & Restart Portal" saves config to DB, sets setupComplete=true, localAdminEnabled=false
-6. Portal restarts → DatabaseConfigSource reads AAP config from DB
-7. Sign-in page detects localAdminEnabled=false → shows AAP OAuth only
-8. Admin logs in with AAP credentials
+6. "Apply & Restart Portal" saves config to DB, sets setupComplete=true, localAdminEnabled=false
+7. Portal restarts → DatabaseConfigSource reads AAP config from DB
+8. Sign-in page detects localAdminEnabled=false → Mode 3 (AAP OAuth only)
+9. Admin logs in with AAP credentials
+
+Emergency recovery (post-setup):
+10. Admin enables local admin via CLI (yarn portal-admin, portal-config, or API)
+11. Admin logs out → Sign-in page shows Mode 2 (dual: Local Admin + AAP)
+12. Admin clicks "Sign In" on Local Admin card, enters password
+13. No auto-authentication — AAP OAuth only starts when user clicks its button
 ```
 
 ## Deployment-Specific Details
@@ -65,12 +73,24 @@ The `local-admin` provider:
 
 **Start in setup mode:**
 ```bash
-PORTAL_ADMIN_PASSWORD=admin123 yarn start
+yarn start
+```
+
+**Management commands (no running backend needed):**
+```bash
+yarn portal-admin status                       # View setup state
+yarn portal-admin connections                   # List connections
+yarn portal-admin full-reset                    # Wipe all config + reset setup
+yarn portal-admin reset-setup                   # Re-enter setup (keep connections)
+yarn portal-admin reset-setup --clear-config    # Re-enter setup (wipe connections)
+yarn portal-admin set-local-admin --enable      # Toggle local admin
+yarn portal-admin clear-config --category aap   # Delete one category
 ```
 
 **Reset to setup mode:**
 ```bash
-rm -rf packages/backend/portal-dev-db && PORTAL_ADMIN_PASSWORD=admin123 yarn start
+yarn portal-admin full-reset
+pkill -f "backstage-cli"; yarn start
 ```
 
 **How it works:**
@@ -78,7 +98,7 @@ rm -rf packages/backend/portal-dev-db && PORTAL_ADMIN_PASSWORD=admin123 yarn sta
 - Config override: `createRootConfigWithDatabaseSource()` registered in `packages/backend/src/index.ts`
 - Bootstrap connection: Reads `app-config.yaml` + `app-config.local.yaml` directly to find DB path
 - Auth environment: `development` (from `auth.environment` in config)
-- Admin password: `PORTAL_ADMIN_PASSWORD` env var (plain text, no bcrypt)
+- Admin password: `auth.providers.local-admin.development.password` in config (plain text, local dev only)
 
 **Key files:**
 - `app-config.local.yaml` — Local overrides (onboarding.enabled, admin password, DB directory)
@@ -208,7 +228,11 @@ All endpoints under `/api/rhaap-backend/`:
 | POST | `/setup/apply` | Admin | Complete setup |
 | POST | `/setup/batch` | Admin | Atomic full setup |
 | GET | `/connections` | Admin | View all connections |
-| PUT | `/connections/aap` | Admin | Update AAP |
-| PUT | `/general/local-admin` | Admin | Toggle local admin |
+| PUT | `/connections/aap` | Admin | Update AAP (partial secrets) |
+| PUT | `/connections/registries` | Admin | Update registries |
+| PUT | `/connections/scm/:provider` | Admin | Update SCM (partial secrets) |
+| DELETE | `/connections/scm/:provider` | Admin | Remove SCM provider |
+| POST | `/connections/:type/sync` | Admin | Trigger sync (proxies to catalog) |
+| PUT | `/general/local-admin` | Admin | Toggle local admin (CLI/API only, not in UI) |
 
 Full OpenAPI spec: `plugins/backstage-rhaap-backend/src/schema/openapi.yaml`

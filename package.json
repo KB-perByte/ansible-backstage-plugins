@@ -25,7 +25,8 @@
     "lint:all": "backstage-cli repo lint",
     "lint-staged": "lint-staged -p 10",
     "prettier:check": "prettier --check .",
-    "new": "backstage-cli new"
+    "new": "backstage-cli new",
+    "portal-admin": "npx tsx plugins/backstage-rhaap-backend/src/cli/portal-admin.ts"
   },
   "workspaces": {
     "packages": [

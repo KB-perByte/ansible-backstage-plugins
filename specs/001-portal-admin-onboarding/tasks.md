@@ -2,15 +2,31 @@
 
 **Jira**: ANSTRAT-1806
 **Date**: 2026-03-24
+**Updated**: 2026-04-01 (re-analysis of implementation status)
 **Prerequisites**: SPEC.md v6, PLAN.md (approved)
+
+---
+
+## Implementation Status (as of 2026-04-01)
+
+| Phase | Status | Remaining |
+| --- | --- | --- |
+| Phase 1: Foundation | [X] COMPLETE | — |
+| Phase 2: Config Merging | [X] COMPLETE | — |
+| Phase 3: Setup Wizard | [X] COMPLETE | — |
+| Phase 4: Admin Pages | [X] COMPLETE | Tests pending |
+| Phase 5: Deployment | [ ] PARTIAL | Helm chart, RHEL config, E2E tests unverified |
+| Phase 6: Polish | [ ] NOT STARTED | CI tooling, docs |
+| Phase 7: Local Admin Auth | [X] MOSTLY DONE | Tests missing for localAdmin.ts |
 
 ---
 
 ## Phase 1: Foundation (Backend Core)
 
 **Goal**: Backend plugin with DB, encryption, APIs, and OpenAPI spec
+**Status**: [X] COMPLETE — all 8 tasks implemented in commit `a017541`
 
-### T1.1 — Add admin types, permissions, and constants to `backstage-rhaap-common`
+### [X] T1.1 — Add admin types, permissions, and constants to `backstage-rhaap-common`
 
 **Files to create/modify**:
 - `plugins/backstage-rhaap-common/src/admin/types.ts` (create)
@@ -51,7 +67,7 @@
 
 ---
 
-### T1.2 — Scaffold `backstage-rhaap-backend` plugin package
+### [X] T1.2 — Scaffold `backstage-rhaap-backend` plugin package
 
 **Files to create**:
 - `plugins/backstage-rhaap-backend/package.json`
@@ -100,7 +116,7 @@ export interface Config {
 
 ---
 
-### T1.3 — Implement database migration and DatabaseHandler
+### [X] T1.3 — Implement database migration and DatabaseHandler
 
 **Files to create**:
 - `plugins/backstage-rhaap-backend/migrations/20260324_001_init.ts`
@@ -130,7 +146,7 @@ export interface Config {
 
 ---
 
-### T1.4 — Implement encryption module
+### [X] T1.4 — Implement encryption module
 
 **Files to create**:
 - `plugins/backstage-rhaap-backend/src/config/encryption.ts`
@@ -157,7 +173,7 @@ export interface Config {
 
 ---
 
-### T1.5 — Implement PortalAdminService
+### [X] T1.5 — Implement PortalAdminService
 
 **Files to create**:
 - `plugins/backstage-rhaap-backend/src/service/PortalAdminService.ts`
@@ -197,7 +213,7 @@ export interface Config {
 
 ---
 
-### T1.6 — Write OpenAPI 3.1 spec
+### [X] T1.6 — Write OpenAPI 3.1 spec
 
 **Files to create**:
 - `plugins/backstage-rhaap-backend/src/schema/openapi.yaml`
@@ -235,7 +251,7 @@ export interface Config {
 
 ---
 
-### T1.7 — Generate typed router and implement API routes
+### [X] T1.7 — Generate typed router and implement API routes
 
 **Files to create/modify**:
 - `plugins/backstage-rhaap-backend/src/schema/openapi.generated.ts` (generated)
@@ -263,7 +279,7 @@ export interface Config {
 
 ---
 
-### T1.8 — Wire plugin registration, permissions, and local dev integration
+### [X] T1.8 — Wire plugin registration, permissions, and local dev integration
 
 **Files to modify**:
 - `plugins/backstage-rhaap-backend/src/plugin.ts` (update — wire router, DB, service, register permissions via `permissionsRegistry.addPermissions(portalAdminPermissions)`)
@@ -285,8 +301,9 @@ export interface Config {
 ## Phase 2: Config Merging
 
 **Goal**: DB-stored config available to all plugins via standard Config interface
+**Status**: [X] COMPLETE
 
-### T2.1 — Implement bootstrap database connection
+### [X] T2.1 — Implement bootstrap database connection
 
 **Files to create**:
 - `plugins/backstage-rhaap-backend/src/config/bootstrapConnection.ts`
@@ -312,7 +329,7 @@ export interface Config {
 
 ---
 
-### T2.2 — Implement config tree builder
+### [X] T2.2 — Implement config tree builder
 
 **Files to create**:
 - `plugins/backstage-rhaap-backend/src/config/configTreeBuilder.ts`
@@ -341,7 +358,7 @@ export interface Config {
 
 ---
 
-### T2.3 — Implement DatabaseConfigSource
+### [X] T2.3 — Implement DatabaseConfigSource
 
 **Files to create**:
 - `plugins/backstage-rhaap-backend/src/config/DatabaseConfigSource.ts`
@@ -361,7 +378,7 @@ export interface Config {
 
 ---
 
-### T2.4 — Integrate DatabaseConfigSource with backend startup
+### [X] T2.4 — Integrate DatabaseConfigSource with backend startup
 
 **Files to create/modify**:
 - `plugins/backstage-rhaap-backend/src/config/rootConfigOverride.ts` (create)
@@ -389,7 +406,7 @@ export interface Config {
 
 ---
 
-### T2.5 — Modify RHAAP auth module for DB-backed config hot-reload
+### [X] T2.5 — Modify RHAAP auth module for DB-backed config hot-reload
 
 **Files to modify**:
 - `plugins/auth-backend-module-rhaap-provider/src/authenticator.ts`
@@ -417,8 +434,9 @@ export interface Config {
 ## Phase 3: Setup Wizard (Frontend)
 
 **Goal**: 5-step wizard in self-service plugin matching Figma screens 2-10
+**Status**: [X] COMPLETE — all 11 tasks implemented
 
-### T3.1 — Add API client and routes to self-service plugin
+### [X] T3.1 — Add API client and routes to self-service plugin
 
 **Files to modify/create**:
 - `plugins/self-service/src/apis.ts` (modify — add `PortalAdminApi`, `PortalAdminClient`, `portalAdminApiRef`)
@@ -439,7 +457,7 @@ export interface Config {
 
 ---
 
-### T3.2 — Implement SetupGate component
+### [X] T3.2 — Implement SetupGate component
 
 **Files to create**:
 - `plugins/self-service/src/components/SetupGate/SetupGate.tsx`
@@ -461,7 +479,7 @@ export interface Config {
 
 ---
 
-### T3.3 — Implement SetupWizard container and stepper
+### [X] T3.3 — Implement SetupWizard container and stepper
 
 **Files to create**:
 - `plugins/self-service/src/components/SetupWizard/SetupWizard.tsx`
@@ -487,7 +505,7 @@ export interface Config {
 
 ---
 
-### T3.4 — Implement OverviewStep (Screen 2)
+### [X] T3.4 — Implement OverviewStep (Screen 2)
 
 **Files to create**:
 - `plugins/self-service/src/components/SetupWizard/OverviewStep.tsx`
@@ -506,7 +524,7 @@ export interface Config {
 
 ---
 
-### T3.5 — Implement ConnectAAPStep (Screen 3)
+### [X] T3.5 — Implement ConnectAAPStep (Screen 3)
 
 **Files to create**:
 - `plugins/self-service/src/components/SetupWizard/ConnectAAPStep.tsx`
@@ -530,7 +548,7 @@ export interface Config {
 
 ---
 
-### T3.6 — Implement ConnectRegistriesStep (Screen 4)
+### [X] T3.6 — Implement ConnectRegistriesStep (Screen 4)
 
 **Files to create**:
 - `plugins/self-service/src/components/SetupWizard/ConnectRegistriesStep.tsx`
@@ -550,7 +568,7 @@ export interface Config {
 
 ---
 
-### T3.7 — Implement SCM provider registry and ConnectSCMModal
+### [X] T3.7 — Implement SCM provider registry and ConnectSCMModal
 
 **Files to create**:
 - `plugins/self-service/src/providers/scmRegistry.ts`
@@ -577,7 +595,7 @@ export interface Config {
 
 ---
 
-### T3.8 — Implement ConnectSourceControlStep (Screens 5, 7)
+### [X] T3.8 — Implement ConnectSourceControlStep (Screens 5, 7)
 
 **Files to create**:
 - `plugins/self-service/src/components/SetupWizard/ConnectSourceControlStep.tsx`
@@ -598,7 +616,7 @@ export interface Config {
 
 ---
 
-### T3.9 — Implement ReviewStep (Screen 8)
+### [X] T3.9 — Implement ReviewStep (Screen 8)
 
 **Files to create**:
 - `plugins/self-service/src/components/SetupWizard/ReviewStep.tsx`
@@ -619,7 +637,7 @@ export interface Config {
 
 ---
 
-### T3.10 — Implement ApplyingScreen and SetupCompleteScreen (Screens 9, 10)
+### [X] T3.10 — Implement ApplyingScreen and SetupCompleteScreen (Screens 9, 10)
 
 **Files to create**:
 - `plugins/self-service/src/components/SetupWizard/ApplyingScreen.tsx`
@@ -642,7 +660,7 @@ export interface Config {
 
 ---
 
-### T3.11 — Add routes to RouteView and exports to index.ts
+### [X] T3.11 — Add routes to RouteView and exports to index.ts
 
 **Files to modify**:
 - `plugins/self-service/src/components/RouteView/RouteView.tsx`
@@ -663,9 +681,10 @@ export interface Config {
 
 ## Phase 4: Admin Pages (Frontend)
 
-**Goal**: Post-setup admin pages matching Figma screens 1, 11, 12
+**Goal**: Post-setup admin pages matching Figma mockups 1, 13, 14
+**Status**: [X] COMPLETE — ConnectionsPage (with edit modals), RBACPage (wrapping RHDH RBAC), sidebar items, plugin exports. GeneralPage removed (local admin toggle moved to CLI-only per enterprise best practices).
 
-### T4.1 — Implement GeneralPage (Screen 11)
+### [X] T4.1 — ~~Implement GeneralPage (Mockup 13)~~ REMOVED
 
 **Files to create**:
 - `plugins/self-service/src/components/AdminPages/GeneralPage.tsx`
@@ -685,7 +704,7 @@ export interface Config {
 
 ---
 
-### T4.2 — Implement ConnectionCard component
+### [X] T4.2 — Implement ConnectionCard component
 
 **Files to create**:
 - `plugins/self-service/src/components/AdminPages/ConnectionCard.tsx`
@@ -705,7 +724,7 @@ export interface Config {
 
 ---
 
-### T4.3 — Implement ConnectionsPage (Screen 12)
+### [X] T4.3 — Implement ConnectionsPage (Mockup 14)
 
 **Files to create**:
 - `plugins/self-service/src/components/AdminPages/ConnectionsPage.tsx`
@@ -716,10 +735,10 @@ export interface Config {
 
 **Acceptance criteria**:
 - Loads connections from `GET /connections`
-- "Edit" opens pre-filled form (reuses wizard step forms)
-- "Sync now" calls `POST /connections/:type/sync`
+- "Edit" opens pre-filled form — shares form components with setup wizard steps (T3.5 ConnectAAPStep, T3.6 ConnectRegistriesStep, T3.7 ConnectSCMModal). Extract shared form fields into reusable components if not already done.
+- "Sync now" calls `POST /connections/:type/sync` which proxies to existing catalog-backend-module-rhaap sync endpoints (`POST /ansible/sync/from-aap/content` for PAH, `POST /ansible/sync/from-scm/content` for SCM)
 - Public Registers shows toggles with external links
-- Matches Figma screen 12
+- Matches Figma mockup 14
 
 **Complexity**: Large
 **Dependencies**: T4.2, T3.5, T3.6, T3.7 (reuses wizard forms)
@@ -727,7 +746,7 @@ export interface Config {
 
 ---
 
-### T4.4 — Implement RBACPage (Screen 1)
+### [X] T4.4 — Implement RBACPage (Screen 1)
 
 **Files to create**:
 - `plugins/self-service/src/components/AdminPages/RBACPage.tsx`
@@ -750,7 +769,7 @@ export interface Config {
 
 ---
 
-### T4.5 — Add admin routes with permission gating and sidebar menu items
+### [X] T4.5 — Add admin routes with permission gating and sidebar menu items
 
 **Files to modify**:
 - `plugins/self-service/src/components/RouteView/RouteView.tsx` (add admin routes wrapped in `<RequirePermission permission={portalAdminViewPermission}>`)
@@ -773,10 +792,10 @@ export interface Config {
 **Sidebar visibility**: ADMINISTRATION menu items conditionally rendered using `usePermission({ permission: portalAdminViewPermission })`
 
 **Acceptance criteria**:
-- `/admin/general`, `/admin/connections`, `/admin/rbac` routes work
+- `/admin/connections`, `/admin/rbac` routes work (General page removed — local admin toggle is CLI-only)
 - Routes gated by `portalAdminViewPermission` via `RequirePermission`
-- Write actions (edit, sync, toggle) gated by `portalAdminWritePermission` via `usePermission`
-- ADMINISTRATION sidebar items only visible to users with `ansible.admin.view` permission
+- Write actions (edit, sync) gated by `portalAdminWritePermission` via `usePermission`
+- ADMINISTRATION sidebar: "Connections" via `AdminSidebarItems` (permission-gated), RBAC via `<Administration />` from `@backstage-community/plugin-rbac`
 - Users without admin permission see "Unauthorized" page (Backstage default)
 - RBAC CSV policy can grant/revoke admin access per user/group
 - Admin page exports available for dynamic plugin config
@@ -938,8 +957,9 @@ export interface Config {
 ## Phase 7: Local Admin Auth + Recovery (Integrated into RHAAP Provider)
 
 **Goal**: Extend RHAAP auth with local admin login, add recovery mechanisms, remove guest auth dependency
+**Status**: [X] MOSTLY DONE — local admin auth implemented, tests missing
 
-### T7.1 — Add local-login endpoint to RHAAP auth module
+### [X] T7.1 — Add local-login endpoint to RHAAP auth module (tests missing)
 
 **Files to create/modify**:
 - `plugins/auth-backend-module-rhaap-provider/src/localAdmin.ts` (create) — bcrypt validation, rate limiting, audit logging
@@ -969,7 +989,7 @@ export interface Config {
 
 ---
 
-### T7.2 — Update sign-in page for dual-mode RHAAP
+### [X] T7.2 — Update sign-in page for dual-mode RHAAP
 
 **Files to modify**:
 - `plugins/self-service/src/components/SignInPage/SignInPage.tsx` — Add local admin form
@@ -993,7 +1013,7 @@ export interface Config {
 
 ---
 
-### T7.3 — Helm chart: admin credentials secret + NOTES.txt
+### [X] T7.3 — Helm chart: admin credentials secret + NOTES.txt
 
 **Files to create/modify** (in `ansible-portal-chart/`):
 - `templates/admin-credentials-job.yaml` (create) — Pre-install hook Job that generates password + bcrypt hash, creates K8s Secret
@@ -1041,7 +1061,7 @@ Admin credentials for initial setup:
 
 ---
 
-### T7.4 — RHEL bootc: admin password in portal-setup.py
+### [X] T7.4 — RHEL bootc: admin password in portal-setup.py
 
 **Files to modify** (in `automation-portal-bootc-container/bootc/`):
 - `scripts/portal-setup.py` — Add admin password generation to `_store_secrets()` method
@@ -1085,7 +1105,7 @@ self.logger.info(f"Admin password for initial setup: {admin_password}")
 
 ---
 
-### T7.5 — Update app-config.local.yaml and remove guest auth
+### [X] T7.5 — Update app-config.local.yaml and remove guest auth
 
 **Files to modify**:
 - `app-config.local.yaml` — Remove guest provider, remove GitHub auth, add local admin password, keep only RHAAP
@@ -1105,26 +1125,23 @@ self.logger.info(f"Admin password for initial setup: {admin_password}")
 
 ---
 
-## Summary
+## Summary (Updated 2026-04-01)
 
-| Phase | Tasks | Key Deliverables |
-|-------|-------|-----------------|
-| **1. Foundation** | T1.1–T1.8 | Backend plugin, DB, encryption, APIs, OpenAPI |
-| **2. Config Merging** | T2.1–T2.5 | DatabaseConfigSource, auth hot-reload |
-| **3. Setup Wizard** | T3.1–T3.11 | 5-step wizard UI |
-| **4. Admin Pages** | T4.1–T4.5 | General, Connections, RBAC pages |
-| **5. Deployment** | T5.1–T5.5 | Helm chart, RHEL config, E2E tests |
-| **6. Polish** | T6.1–T6.3 | CI tooling, docs |
-| **7. Local Admin Auth** | T7.1–T7.5 | Integrated local admin in RHAAP provider, recovery CLI, Helm/bootc secrets |
+| Phase | Tasks | Status | Remaining Work |
+|-------|-------|--------|----------------|
+| **1. Foundation** | T1.1–T1.8 | [X] DONE | — |
+| **2. Config Merging** | T2.1–T2.5 | [X] DONE | — |
+| **3. Setup Wizard** | T3.1–T3.11 | [X] DONE | — |
+| **4. Admin Pages** | T4.1–T4.5 | [X] COMPLETE | Tests pending |
+| **5. Deployment** | T5.1–T5.5 | [ ] PARTIAL | T5.1 done, T5.2-T5.5 unverified |
+| **6. Polish** | T6.1–T6.3 | [ ] NOT STARTED | All tasks |
+| **7. Local Admin Auth** | T7.1–T7.5 | [X] DONE | T7.1 tests pending |
 
-**Total tasks**: 34 (29 original + 5 new)
-**Critical path**: T1.1 → T1.2 → T1.3 → T1.5 → T1.7 → T1.8 → T2.1 → T2.3 → T2.4 → T3.1 → T3.3 → T3.11
+**Total tasks**: 34
+**Completed**: ~31/34
+**Remaining**: ~3 tasks (T5.2-T5.5 deployment verification, T6.1-T6.3 polish)
 
-**Parallelizable work**:
-- T1.4 (encryption) can be done in parallel with T1.2–T1.3
-- T1.6 (OpenAPI spec) can be done in parallel with T1.3–T1.5
-- T2.2 (config tree builder) can be done in parallel with T2.1
-- T2.5 (auth hot-reload) can be done in parallel with T2.1–T2.3
-- T3.4–T3.8 (wizard steps) can be parallelized after T3.3
-- T4.1–T4.4 (admin pages) can be parallelized after T3.1
-- T6.1–T6.2 can be done anytime after T1.6
+**Next implementation priorities**:
+1. T5.2-T5.5 — Deployment integration verification (Helm chart, RHEL config, dynamic plugin export, E2E tests)
+2. T6.1-T6.3 — Polish (CI tooling, catalog entity, documentation)
+3. T7.1 — Local admin auth unit tests

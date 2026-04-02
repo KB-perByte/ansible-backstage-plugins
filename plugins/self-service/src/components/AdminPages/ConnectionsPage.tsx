@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Typography,
   Box,
@@ -10,13 +10,25 @@ import {
   FormControlLabel,
   makeStyles,
   Chip,
+  Snackbar,
+  CircularProgress,
 } from '@material-ui/core';
+import { Alert } from '@material-ui/lab';
 import SyncIcon from '@material-ui/icons/Sync';
 import { Header, Page, Content } from '@backstage/core-components';
 import { usePermission } from '@backstage/plugin-permission-react';
 import { portalAdminWritePermission } from '../../hooks/adminPermissions';
-import type { ConnectionsResponse } from '@ansible/backstage-rhaap-common';
+import type {
+  ConnectionsResponse,
+  AAPConfig,
+  RegistriesConfig,
+  SCMConfig,
+} from '@ansible/backstage-rhaap-common';
 import { usePortalAdminApi } from '../../hooks/usePortalAdminApi';
+import { EditAAPModal } from './EditAAPModal';
+import { EditRegistriesModal } from './EditRegistriesModal';
+import { ConnectSCMModal } from '../SetupWizard/ConnectSCMModal';
+import { scmProviders } from '../../providers/scmRegistry';
 
 const useStyles = makeStyles(theme => ({
   section: {
@@ -32,9 +44,6 @@ const useStyles = makeStyles(theme => ({
     display: 'flex',
     flexDirection: 'column',
     justifyContent: 'space-between',
-  },
-  statusChip: {
-    marginTop: theme.spacing(0.5),
   },
 }));
 
@@ -56,11 +65,25 @@ const StatusBadge = ({
   </Box>
 );
 
-function getPahStatusText(registries: { pahEnabled: boolean; pahInheritAap: boolean }) {
+function getPahStatusText(registries: {
+  pahEnabled: boolean;
+  pahInheritAap: boolean;
+}) {
   if (!registries.pahEnabled) return 'Disabled';
   if (registries.pahInheritAap) return 'Host: Credentials inherited from AAP';
   return 'Host: Standalone';
 }
+
+type EditModal =
+  | { type: 'aap' }
+  | { type: 'registries' }
+  | { type: 'scm'; provider: string };
+
+type SnackbarState = {
+  open: boolean;
+  message: string;
+  severity: 'success' | 'error' | 'info';
+};
 
 export const ConnectionsPage = () => {
   const classes = useStyles();
@@ -71,16 +94,85 @@ export const ConnectionsPage = () => {
   const [connections, setConnections] = useState<ConnectionsResponse | null>(
     null,
   );
+  const [editModal, setEditModal] = useState<EditModal | null>(null);
+  const [syncingType, setSyncingType] = useState<string | null>(null);
+  const [snackbar, setSnackbar] = useState<SnackbarState>({
+    open: false,
+    message: '',
+    severity: 'info',
+  });
 
-  useEffect(() => {
-    api.getConnections().then(setConnections).catch(() => {});
-  }, [api]);
-
-  const handleSync = async (type: string) => {
-    await api.triggerSync(type);
+  const showSnackbar = (message: string, severity: SnackbarState['severity']) => {
+    setSnackbar({ open: true, message, severity });
   };
 
-  if (!connections) return <Page themeId="tool"><Header title="Connections" /><Content><Typography>Loading...</Typography></Content></Page>;
+  const loadConnections = useCallback(() => {
+    api
+      .getConnections()
+      .then(setConnections)
+      .catch(() => {});
+  }, [api]);
+
+  useEffect(() => {
+    loadConnections();
+  }, [loadConnections]);
+
+  const handleSync = async (type: string) => {
+    setSyncingType(type);
+    try {
+      await api.triggerSync(type);
+      showSnackbar(`Sync triggered for ${type}`, 'success');
+    } catch (err: any) {
+      showSnackbar(`Sync failed for ${type}: ${err.message}`, 'error');
+    } finally {
+      setSyncingType(null);
+    }
+  };
+
+  const handleSaveAAP = async (config: Partial<AAPConfig>) => {
+    await api.updateAAPConnection(config as AAPConfig);
+    showSnackbar('AAP connection updated', 'success');
+    loadConnections();
+  };
+
+  const handleSaveRegistries = async (config: Partial<RegistriesConfig>) => {
+    await api.updateRegistries(config as RegistriesConfig);
+    showSnackbar('Registries updated', 'success');
+    loadConnections();
+  };
+
+  const handleSaveSCM = async (
+    provider: string,
+    config: Partial<SCMConfig>,
+  ) => {
+    await api.updateSCMConnection(provider, config as SCMConfig);
+    showSnackbar(`${provider} connection updated`, 'success');
+    loadConnections();
+  };
+
+  const handleRegistryToggle = async (
+    field: keyof RegistriesConfig,
+    value: boolean,
+  ) => {
+    if (!connections) return;
+    const updated = { ...connections.registries, [field]: value };
+    await api.updateRegistries(updated as RegistriesConfig);
+    loadConnections();
+  };
+
+  if (!connections)
+    return (
+      <Page themeId="tool">
+        <Header title="Connections" />
+        <Content>
+          <Typography>Loading...</Typography>
+        </Content>
+      </Page>
+    );
+
+  const activeScmProvider = editModal?.type === 'scm'
+    ? scmProviders.find(p => p.id === editModal.provider)
+    : undefined;
 
   return (
     <Page themeId="tool">
@@ -122,13 +214,25 @@ export const ConnectionsPage = () => {
               <CardActions>
                 {canWrite && (
                   <>
-                    <Button size="small">Edit</Button>
                     <Button
                       size="small"
-                      startIcon={<SyncIcon />}
-                      onClick={() => handleSync('aap')}
+                      onClick={() => setEditModal({ type: 'aap' })}
                     >
-                      Sync now
+                      Edit
+                    </Button>
+                    <Button
+                      size="small"
+                      startIcon={
+                        syncingType === 'aap' ? (
+                          <CircularProgress size={16} />
+                        ) : (
+                          <SyncIcon />
+                        )
+                      }
+                      onClick={() => handleSync('aap')}
+                      disabled={syncingType === 'aap'}
+                    >
+                      {syncingType === 'aap' ? 'Syncing...' : 'Sync now'}
                     </Button>
                   </>
                 )}
@@ -150,13 +254,25 @@ export const ConnectionsPage = () => {
               <CardActions>
                 {canWrite && (
                   <>
-                    <Button size="small">Edit</Button>
                     <Button
                       size="small"
-                      startIcon={<SyncIcon />}
-                      onClick={() => handleSync('pah')}
+                      onClick={() => setEditModal({ type: 'registries' })}
                     >
-                      Sync now
+                      Edit
+                    </Button>
+                    <Button
+                      size="small"
+                      startIcon={
+                        syncingType === 'pah' ? (
+                          <CircularProgress size={16} />
+                        ) : (
+                          <SyncIcon />
+                        )
+                      }
+                      onClick={() => handleSync('pah')}
+                      disabled={syncingType === 'pah'}
+                    >
+                      {syncingType === 'pah' ? 'Syncing...' : 'Sync now'}
                     </Button>
                   </>
                 )}
@@ -177,6 +293,9 @@ export const ConnectionsPage = () => {
                         color="primary"
                         size="small"
                         disabled={!canWrite}
+                        onChange={(_e, val) =>
+                          handleRegistryToggle('certifiedContent', val)
+                        }
                       />
                     }
                     label={
@@ -192,6 +311,9 @@ export const ConnectionsPage = () => {
                         color="primary"
                         size="small"
                         disabled={!canWrite}
+                        onChange={(_e, val) =>
+                          handleRegistryToggle('validatedContent', val)
+                        }
                       />
                     }
                     label={
@@ -207,6 +329,9 @@ export const ConnectionsPage = () => {
                         color="primary"
                         size="small"
                         disabled={!canWrite}
+                        onChange={(_e, val) =>
+                          handleRegistryToggle('galaxyEnabled', val)
+                        }
                       />
                     }
                     label={
@@ -265,16 +390,30 @@ export const ConnectionsPage = () => {
                 <CardActions>
                   {canWrite && (
                     <>
-                      <Button size="small">
+                      <Button
+                        size="small"
+                        onClick={() =>
+                          setEditModal({ type: 'scm', provider })
+                        }
+                      >
                         {info.configured ? 'Edit' : 'Connect'}
                       </Button>
                       {info.configured && (
                         <Button
                           size="small"
-                          startIcon={<SyncIcon />}
+                          startIcon={
+                            syncingType === provider ? (
+                              <CircularProgress size={16} />
+                            ) : (
+                              <SyncIcon />
+                            )
+                          }
                           onClick={() => handleSync(provider)}
+                          disabled={syncingType === provider}
                         >
-                          Sync now
+                          {syncingType === provider
+                            ? 'Syncing...'
+                            : 'Sync now'}
                         </Button>
                       )}
                     </>
@@ -284,6 +423,81 @@ export const ConnectionsPage = () => {
             ))}
           </Box>
         </Box>
+
+        {/* Edit AAP Modal */}
+        {editModal?.type === 'aap' && (
+          <EditAAPModal
+            open
+            initialConfig={{
+              controllerUrl: connections.aap.controllerUrl,
+              clientId: connections.aap.clientId,
+              checkSSL: connections.aap.checkSSL,
+            }}
+            onSave={handleSaveAAP}
+            onClose={() => setEditModal(null)}
+          />
+        )}
+
+        {/* Edit Registries Modal */}
+        {editModal?.type === 'registries' && (
+          <EditRegistriesModal
+            open
+            initialConfig={{
+              pahEnabled: connections.registries.pahEnabled,
+              pahInheritAap: connections.registries.pahInheritAap,
+              pahUrl: connections.registries.pahUrl,
+              certifiedContent: connections.registries.certifiedContent,
+              validatedContent: connections.registries.validatedContent,
+              galaxyEnabled: connections.registries.galaxyEnabled,
+            }}
+            onSave={handleSaveRegistries}
+            onClose={() => setEditModal(null)}
+          />
+        )}
+
+        {/* Edit/Connect SCM Modal */}
+        {editModal?.type === 'scm' && activeScmProvider && (
+          <ConnectSCMModal
+            open
+            provider={activeScmProvider}
+            initialConfig={
+              connections.scm[editModal.provider]?.configured
+                ? {
+                    providerUrl:
+                      connections.scm[editModal.provider].providerUrl,
+                    targetOrgs:
+                      connections.scm[editModal.provider].targetOrgs,
+                    eeFilename:
+                      connections.scm[editModal.provider].eeFilename,
+                    branches:
+                      connections.scm[editModal.provider].branches,
+                    maxDepth:
+                      connections.scm[editModal.provider].maxDepth,
+                  }
+                : undefined
+            }
+            onSave={config =>
+              handleSaveSCM(editModal.provider, config)
+            }
+            onClose={() => setEditModal(null)}
+          />
+        )}
+
+        {/* Feedback snackbar */}
+        <Snackbar
+          open={snackbar.open}
+          autoHideDuration={4000}
+          onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        >
+          <Alert
+            onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}
+            severity={snackbar.severity}
+            variant="filled"
+          >
+            {snackbar.message}
+          </Alert>
+        </Snackbar>
       </Content>
     </Page>
   );

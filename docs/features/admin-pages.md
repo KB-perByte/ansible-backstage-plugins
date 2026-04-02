@@ -2,14 +2,6 @@
 
 After the setup wizard is complete, platform administrators can manage the portal through the ADMINISTRATION sidebar section. These pages are permission-gated — only users with the `ansible.admin.view` permission can see them, and `ansible.admin.write` is required for modifications.
 
-## General
-
-**Route**: `/self-service/admin/general`
-
-### Security & Access Control
-
-- **Local Admin Access (Bootstrap)** — Toggle to enable/disable the built-in admin account. Keep disabled unless performing initial setup or emergency recovery when AAP SSO is unavailable.
-
 ## Connections
 
 **Route**: `/self-service/admin/connections`
@@ -31,35 +23,44 @@ Manage integrations with external platforms for content discovery and user authe
 | **GitHub** | Content discovery status, Login (SSO) status, Host. Edit/Connect and Sync now buttons. |
 | **GitLab** | Same structure as GitHub. |
 
-The "Edit" button opens the same form used in the setup wizard, pre-filled with current values. Secrets are shown as masked placeholders.
+The "Edit" button opens the same form used in the setup wizard, pre-filled with current values. Secret fields (tokens, passwords) are shown as empty with "Leave blank to keep current value" — existing secrets in the database are preserved when left blank.
 
-The "Sync now" button triggers an immediate content sync for the specified provider.
+The "Sync now" button triggers an immediate content sync for the specified provider, with a snackbar notification showing success or failure. Sync is proxied to the catalog backend module via service-to-service authentication.
 
 ## RBAC & User Groups
 
 **Route**: `/self-service/admin/rbac`
 
-Manage portal permissions for groups synced from external identity providers (AAP).
+Manage portal permissions for groups synced from external identity providers (AAP). Wraps the existing RHDH RBAC plugin interface.
 
-### User Groups Table
+## Local Admin Access
 
-| Column | Description |
-|--------|-------------|
-| Group name | Link to group details |
-| Source | Identity provider origin (e.g., AAP) |
-| Members | Number of users in the group |
-| Portal Role | Assignable role: Editor, Viewer, Admin |
-| Last Sync | When the group was last synced |
+Local admin access (for initial setup and emergency recovery) is managed via CLI or API only — there is no UI toggle. This follows the enterprise pattern where break-glass access is an infrastructure operation, not a casual UI action.
 
-Filters: Source (All), Portal Role (All). Search bar and pagination.
+**Local development:**
+```bash
+yarn portal-admin set-local-admin --enable
+yarn portal-admin set-local-admin --disable
+```
 
-Portal Role changes are saved via the existing RHDH RBAC plugin APIs.
+**RHEL appliance:**
+```bash
+sudo portal-config set LOCAL_ADMIN_ENABLED=true
+sudo systemctl restart portal.service
+```
+
+**OpenShift / API:**
+```bash
+curl -X PUT .../api/rhaap-backend/general/local-admin \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"enabled": true}'
+```
 
 ## Permissions
 
 | Permission | ID | Description |
 |------------|-----|-------------|
 | View admin pages | `ansible.admin.view` | See the ADMINISTRATION sidebar section and admin pages |
-| Modify settings | `ansible.admin.write` | Edit connections, toggle local admin, trigger sync |
+| Modify settings | `ansible.admin.write` | Edit connections, trigger sync |
 
 By default, `user:default/admin` and `group:default/aap-admins` (AAP superusers) have both permissions. Additional users/groups can be granted access via RBAC policies.

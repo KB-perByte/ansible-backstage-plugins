@@ -5,6 +5,7 @@ import ExtensionIcon from '@material-ui/icons/Extension';
 import LibraryBooks from '@material-ui/icons/LibraryBooks';
 import CreateComponentIcon from '@material-ui/icons/AddCircleOutline';
 import CategoryIcon from '@material-ui/icons/Category';
+import LinkIcon from '@material-ui/icons/Link';
 import LogoFull from './LogoFull';
 import LogoIcon from './LogoIcon';
 import {
@@ -30,6 +31,8 @@ import { MyGroupsSidebarItem } from '@backstage/plugin-org';
 import GroupIcon from '@material-ui/icons/People';
 import { AnsibleLogo } from '@ansible/plugin-backstage-rhaap';
 import { Administration } from '@backstage-community/plugin-rbac';
+import { RequirePermission } from '@backstage/plugin-permission-react';
+import { createPermission } from '@backstage/plugin-permission-common';
 
 const useSidebarLogoStyles = makeStyles({
   root: {
@@ -58,6 +61,24 @@ const SidebarLogo = () => {
     </div>
   );
 };
+
+/**
+ * Permission-gated admin sidebar items for portal administration.
+ * Uses the same permission as the admin pages (ansible.admin.view).
+ */
+const portalAdminViewPermission = createPermission({
+  name: 'ansible.admin.view',
+  attributes: { action: 'read' },
+});
+
+const AdminSidebarItems = () => (
+  <RequirePermission
+    permission={portalAdminViewPermission}
+    errorPage={<></>}
+  >
+    <SidebarItem icon={LinkIcon} to="/self-service/admin/connections" text="Connections" />
+  </RequirePermission>
+);
 
 export const Root = ({ children }: PropsWithChildren<{}>) => (
   <SidebarPage>
@@ -107,6 +128,8 @@ export const Root = ({ children }: PropsWithChildren<{}>) => (
       <SidebarSpace />
       <SidebarDivider />
       <Administration />
+      <SidebarDivider />
+      <AdminSidebarItems />
       <SidebarDivider />
       <SidebarGroup
         label="Settings"

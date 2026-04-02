@@ -54,7 +54,7 @@ export function LocalAdminLoginCard({
         window.location.port === '3000'
           ? `http://localhost:7007`
           : '';
-      const response = await fetch(`${baseUrl}/api/auth/local-login`, {
+      const response = await fetch(`${baseUrl}/api/auth/local-admin/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),

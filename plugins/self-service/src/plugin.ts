@@ -63,3 +63,35 @@ export const SetupGate = selfServicePlugin.provide(
     },
   }),
 );
+
+/**
+ * Admin Connections page — manage external platform integrations.
+ * Loaded as a component extension (routed via RouteView.tsx).
+ * @public
+ */
+export const AdminConnectionsPage = selfServicePlugin.provide(
+  createComponentExtension({
+    name: 'AdminConnectionsPage',
+    component: {
+      lazy: () =>
+        import('./components/AdminPages/ConnectionsPage').then(
+          m => m.ConnectionsPage,
+        ),
+    },
+  }),
+);
+
+/**
+ * Admin RBAC page — manage portal permissions and user groups.
+ * Loaded as a component extension (routed via RouteView.tsx).
+ * @public
+ */
+export const AdminRBACPage = selfServicePlugin.provide(
+  createComponentExtension({
+    name: 'AdminRBACPage',
+    component: {
+      lazy: () =>
+        import('./components/AdminPages/RBACPage').then(m => m.RBACPage),
+    },
+  }),
+);

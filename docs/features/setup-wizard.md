@@ -30,7 +30,9 @@ ansible:
 | OpenShift (existing) | `false` | Existing deployments already have secrets configured |
 | Local Development | `true` | Set in `app-config.local.yaml`. Start with `PORTAL_ADMIN_PASSWORD=admin123 yarn start` |
 
-When onboarding is enabled, the portal auto-logs in as `user:default/admin` via the `local-admin` ProxyAuthenticator and redirects directly to the setup wizard. No login form is shown during setup mode.
+When onboarding is enabled and setup is not yet complete, the portal auto-logs in as `user:default/admin` via the `local-admin` ProxyAuthenticator and redirects directly to the setup wizard. No login form is shown during initial setup mode.
+
+After setup is complete, if local admin is re-enabled (for emergency recovery), the sign-in page shows both a Local Admin login card (with password form) and the AAP OAuth button — the admin must enter credentials explicitly.
 
 ## Wizard Steps
 

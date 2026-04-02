@@ -52,11 +52,19 @@ export class PortalAdminService {
     };
   }
 
-  async saveAAPConfig(input: AAPConfig): Promise<void> {
+  async saveAAPConfig(
+    input: AAPConfig,
+    options?: { allowPartialSecrets?: boolean },
+  ): Promise<void> {
     this.validateUrl(input.controllerUrl, 'controllerUrl');
-    this.validateNonEmpty(input.adminToken, 'adminToken');
     this.validateNonEmpty(input.clientId, 'clientId');
-    this.validateNonEmpty(input.clientSecret, 'clientSecret');
+
+    // During initial setup, secrets are required.
+    // During edit (allowPartialSecrets), empty secrets mean "keep current value".
+    if (!options?.allowPartialSecrets) {
+      this.validateNonEmpty(input.adminToken, 'adminToken');
+      this.validateNonEmpty(input.clientSecret, 'clientSecret');
+    }
 
     const checkSSL = input.checkSSL ?? false;
     const category = CATEGORIES.AAP;
@@ -66,21 +74,25 @@ export class PortalAdminService {
       input.controllerUrl,
       category,
     );
-    await this.upsertConfigValue(
-      CONFIG_KEYS.AAP_ADMIN_TOKEN,
-      input.adminToken,
-      category,
-    );
+    if (input.adminToken) {
+      await this.upsertConfigValue(
+        CONFIG_KEYS.AAP_ADMIN_TOKEN,
+        input.adminToken,
+        category,
+      );
+    }
     await this.upsertConfigValue(
       CONFIG_KEYS.AAP_OAUTH_CLIENT_ID,
       input.clientId,
       category,
     );
-    await this.upsertConfigValue(
-      CONFIG_KEYS.AAP_OAUTH_CLIENT_SECRET,
-      input.clientSecret,
-      category,
-    );
+    if (input.clientSecret) {
+      await this.upsertConfigValue(
+        CONFIG_KEYS.AAP_OAUTH_CLIENT_SECRET,
+        input.clientSecret,
+        category,
+      );
+    }
     await this.upsertConfigValue(
       CONFIG_KEYS.AAP_CHECK_SSL,
       String(checkSSL),
@@ -138,16 +150,25 @@ export class PortalAdminService {
     this.logger.info('Registries configuration saved');
   }
 
-  async saveSCMConfig(provider: string, input: SCMConfig): Promise<void> {
+  async saveSCMConfig(
+    provider: string,
+    input: SCMConfig,
+    options?: { allowPartialSecrets?: boolean },
+  ): Promise<void> {
     this.validateSCMProvider(provider);
     this.validateUrl(input.providerUrl, 'providerUrl');
-    this.validateNonEmpty(input.token, 'token');
+
+    if (!options?.allowPartialSecrets) {
+      this.validateNonEmpty(input.token, 'token');
+    }
 
     const category = CATEGORIES.scm(provider);
     const keys = scmConfigKeys(provider);
 
     await this.upsertConfigValue(keys.PROVIDER_URL, input.providerUrl, category);
-    await this.upsertConfigValue(keys.TOKEN, input.token, category);
+    if (input.token) {
+      await this.upsertConfigValue(keys.TOKEN, input.token, category);
+    }
 
     if (input.targetOrgs) {
       await this.upsertConfigValue(keys.TARGET_ORGS, input.targetOrgs, category);

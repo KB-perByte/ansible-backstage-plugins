@@ -1,5 +1,7 @@
 import { Router, json } from 'express';
 import {
+  AuthService,
+  DiscoveryService,
   HttpAuthService,
   LoggerService,
 } from '@backstage/backend-plugin-api';
@@ -19,6 +21,8 @@ export interface RouterOptions {
   httpAuth: HttpAuthService;
   logger: LoggerService;
   config: Config;
+  discovery: DiscoveryService;
+  auth: AuthService;
 }
 
 async function authorizeRead(
@@ -54,7 +58,7 @@ async function authorizeWrite(
 export async function createRouter(
   options: RouterOptions,
 ): Promise<Router> {
-  const { service, permissions, httpAuth, logger } = options;
+  const { service, permissions, httpAuth, logger, discovery, auth } = options;
   const router = Router();
   router.use(json());
 
@@ -114,7 +118,7 @@ export async function createRouter(
 
   router.put('/connections/aap', async (req, res) => {
     await authorizeWrite(req, permissions, httpAuth);
-    await service.saveAAPConfig(req.body);
+    await service.saveAAPConfig(req.body, { allowPartialSecrets: true });
     res.json({ success: true, data: { restartRequired: true } });
   });
 
@@ -126,7 +130,9 @@ export async function createRouter(
 
   router.put('/connections/scm/:provider', async (req, res) => {
     await authorizeWrite(req, permissions, httpAuth);
-    await service.saveSCMConfig(req.params.provider, req.body);
+    await service.saveSCMConfig(req.params.provider, req.body, {
+      allowPartialSecrets: true,
+    });
     res.json({ success: true, data: { restartRequired: true } });
   });
 
@@ -148,10 +154,64 @@ export async function createRouter(
 
   router.post('/connections/:type/sync', async (req, res) => {
     await authorizeWrite(req, permissions, httpAuth);
-    // Sync is delegated to the catalog backend module's existing sync endpoints
-    // This is a convenience proxy — actual implementation depends on catalog module
-    logger.info(`Sync triggered for ${req.params.type}`);
-    res.json({ success: true, data: { message: 'Sync triggered' } });
+    const syncType = req.params.type;
+
+    // Map connection types to catalog sync endpoints and request bodies
+    const catalogBaseUrl = await discovery.getBaseUrl('catalog');
+    const { token } = await auth.getPluginRequestToken({
+      onBehalfOf: await httpAuth.credentials(req as any),
+      targetPluginId: 'catalog',
+    });
+
+    let syncPath: string;
+    let syncBody: object | undefined;
+
+    switch (syncType) {
+      case 'aap':
+        // Trigger AAP entity sync (orgs, users, teams) + job templates
+        syncPath = '/aap/sync_orgs_users_teams';
+        break;
+      case 'pah':
+        // Trigger PAH collection sync from AAP
+        syncPath = '/ansible/sync/from-aap/content';
+        syncBody = {
+          filters: [
+            { repository_name: 'rh-certified' },
+            { repository_name: 'validated' },
+            { repository_name: 'published' },
+          ],
+        };
+        break;
+      case 'github':
+      case 'gitlab':
+        // Trigger SCM content sync
+        syncPath = '/ansible/sync/from-scm/content';
+        syncBody = { filters: [{ scmProvider: syncType }] };
+        break;
+      default:
+        throw new InputError(`Unknown sync type: ${syncType}`);
+    }
+
+    const syncUrl = `${catalogBaseUrl}${syncPath}`;
+    const method = syncBody ? 'POST' : 'GET';
+    logger.info(`Triggering sync for ${syncType}: ${method} ${syncPath}`);
+
+    const syncResponse = await fetch(syncUrl, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      ...(syncBody ? { body: JSON.stringify(syncBody) } : {}),
+    });
+
+    const syncResult = await syncResponse.json().catch(() => ({}));
+    logger.info(`Sync response for ${syncType}: ${syncResponse.status}`);
+
+    res.status(syncResponse.ok ? 200 : syncResponse.status).json({
+      success: syncResponse.ok,
+      data: syncResult,
+    });
   });
 
   // --- Error handler ---

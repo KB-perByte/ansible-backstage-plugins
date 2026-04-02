@@ -20,6 +20,8 @@ export const rhaapBackendPlugin = createBackendPlugin({
         permissions: coreServices.permissions,
         httpAuth: coreServices.httpAuth,
         permissionsRegistry: coreServices.permissionsRegistry,
+        discovery: coreServices.discovery,
+        auth: coreServices.auth,
       },
       async init({
         config,
@@ -29,6 +31,8 @@ export const rhaapBackendPlugin = createBackendPlugin({
         permissions,
         httpAuth,
         permissionsRegistry,
+        discovery,
+        auth,
       }) {
         // Register admin permissions with the permission framework
         permissionsRegistry.addPermissions(portalAdminPermissions);
@@ -53,6 +57,8 @@ export const rhaapBackendPlugin = createBackendPlugin({
           httpAuth,
           logger,
           config,
+          discovery,
+          auth,
         });
 
         httpRouter.use(router as any);
