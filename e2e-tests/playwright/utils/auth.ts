@@ -7,6 +7,18 @@ import { authenticator } from 'otplib';
  */
 
 /**
+ * Clicks Sign In for the RH AAP provider on the multi-provider sign-in screen.
+ * Avoids strict-mode violations from multiple "Sign In" controls (e.g. GitHub + RH AAP).
+ */
+export async function clickRhaapSignIn(page: Page) {
+  await page
+    .getByRole('listitem')
+    .filter({ hasText: /RH AAP/i })
+    .getByRole('button', { name: /^Sign In$/ })
+    .click();
+}
+
+/**
  * Login to AAP portal
  * Replaces the Cypress Common.LogintoAAP() with smarter auto-waiting
  */
@@ -30,7 +42,10 @@ export async function loginAAP(page: Page) {
     const url = page.url();
     if (
       url.includes('/self-service') &&
-      (await page.locator('main').isVisible().catch(() => false))
+      (await page
+        .locator('main')
+        .isVisible()
+        .catch(() => false))
     ) {
       console.log('[Auth] Already authenticated (self-service) ✓');
       return;
@@ -51,10 +66,8 @@ export async function loginAAP(page: Page) {
     console.log('[Auth] Not on login page but not authenticated either');
   }
 
-  console.log('[Auth] Clicking Sign In button...');
-  // Click Sign In - use getByText instead of getByRole to match Cypress behavior
-  const signInButton = page.getByText('Sign In', { exact: true });
-  await signInButton.click();
+  console.log('[Auth] Clicking RH AAP Sign In button...');
+  await clickRhaapSignIn(page);
 
   // Wait a moment for navigation (like Cypress wait)
   await page.waitForLoadState('domcontentloaded');
@@ -149,7 +162,10 @@ export async function loginAAP(page: Page) {
   // when main is visible and the sign-in gate is not shown (label may not be "Templates" on all routes)
   const url = page.url();
   const onSelfService = url.includes('/self-service');
-  const mainVisible = await page.locator('main').isVisible().catch(() => false);
+  const mainVisible = await page
+    .locator('main')
+    .isVisible()
+    .catch(() => false);
 
   if (onSelfService && mainVisible && !signInPromptVisible) {
     console.log('[Auth] Authenticated on self-service app ✓');
@@ -175,7 +191,9 @@ export async function loginAAP(page: Page) {
 
   console.log('[Auth] Final URL:', page.url());
 
-  console.log('[Auth] Waiting for Templates navigation or self-service shell...');
+  console.log(
+    '[Auth] Waiting for Templates navigation or self-service shell...',
+  );
   const templatesOrShell = page
     .getByText('Templates', { exact: true })
     .first()

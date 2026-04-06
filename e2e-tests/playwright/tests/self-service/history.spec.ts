@@ -28,9 +28,7 @@ test.describe('History - Task Execution History Tests', () => {
 
     const bodyText = await page.locator('body').innerText();
     if (bodyText.includes('Task List') || bodyText.includes('History')) {
-      await expect(
-        page.getByText(/Task List|History/i).first(),
-      ).toBeVisible();
+      await expect(page.getByText(/Task List|History/i).first()).toBeVisible();
     }
   });
 

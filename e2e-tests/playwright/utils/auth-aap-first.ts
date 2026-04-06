@@ -131,7 +131,10 @@ export async function loginAAPSessionFirst(page: Page) {
 
   const url = page.url();
   const onSelfService = url.includes('/self-service');
-  const mainVisible = await page.locator('main').isVisible().catch(() => false);
+  const mainVisible = await page
+    .locator('main')
+    .isVisible()
+    .catch(() => false);
 
   if (onSelfService && mainVisible && !signInPromptVisible) {
     console.log('[Auth] Login successful ✓');

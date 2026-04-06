@@ -1,8 +1,20 @@
+import type { Page } from '@playwright/test';
 import { test, expect } from '../../fixtures/auth-context';
 
 /**
  * EE tab view — migrated from cypress/e2e/self-service/ee01-tabview.cy.ts
+ *
+ * Tabs are Backstage HeaderTabs (see TabviewPage.tsx). Prefer role="tab" + name
+ * over getByText('Catalog') — substring matches duplicate nodes and breaks clicks.
  */
+
+function eeCatalogTab(page: Page) {
+  return page.getByRole('tab', { name: /^Catalog$/i });
+}
+
+function eeCreateTab(page: Page) {
+  return page.getByRole('tab', { name: /^Create$/i });
+}
 
 test.describe('Execution Environment Tabview Tests', () => {
   test.beforeEach(async ({ page }) => {
@@ -14,34 +26,35 @@ test.describe('Execution Environment Tabview Tests', () => {
   test('Validates Catalog and Create tabs are visible and switchable', async ({
     page,
   }) => {
-    const bodyText = await page.locator('body').innerText();
-    if (bodyText.includes('Catalog')) {
-      await expect(page.getByText('Catalog').first()).toBeAttached();
-    }
-    if (bodyText.includes('Create')) {
-      await expect(page.getByText('Create').first()).toBeAttached();
-    }
+    const catalogTab = eeCatalogTab(page);
+    const createTab = eeCreateTab(page);
 
-    await page.getByText('Create', { exact: false }).first().click({ force: true });
+    await expect(catalogTab).toBeVisible({ timeout: 15000 });
+    await expect(createTab).toBeVisible({ timeout: 15000 });
+
+    await createTab.click({ timeout: 15000 });
     await page.waitForTimeout(800);
+    await expect(page).toHaveURL(/\/self-service\/ee\/create/);
     await expect(page.locator('main')).toBeVisible({ timeout: 15000 });
 
-    await page.getByText('Catalog', { exact: false }).first().click({ force: true });
+    await catalogTab.click({ timeout: 15000 });
     await page.waitForTimeout(800);
+    await expect(page).toHaveURL(/\/self-service\/ee\/catalog/);
     await expect(page.locator('main')).toBeVisible({ timeout: 15000 });
   });
 
   test('Validates Catalog tab: empty state CTA redirects to Create tab', async ({
     page,
   }) => {
-    const body = page.locator('body');
-    if ((await body.innerText()).includes('Catalog')) {
-      await page.getByText('Catalog').first().click({ force: true });
-      await page.waitForTimeout(800);
-    }
+    await page.goto('/self-service/ee/catalog', {
+      waitUntil: 'domcontentloaded',
+    });
+    await expect(page).toHaveURL(/\/self-service\/ee\/catalog/);
+    await page.waitForTimeout(800);
 
     await expect(page.locator('main')).toBeVisible({ timeout: 15000 });
 
+    const body = page.locator('body');
     const text = await body.innerText();
     if (!text.includes('No Execution Environment definition files, yet')) {
       return;
@@ -68,14 +81,13 @@ test.describe('Execution Environment Tabview Tests', () => {
   test('Validates Create tab: Add Template button, filters and template Start button', async ({
     page,
   }) => {
-    const body = page.locator('body');
-    if ((await body.innerText()).includes('Create')) {
-      await page.getByText('Create').first().click({ force: true });
-      await page.waitForTimeout(1500);
-    }
+    await eeCreateTab(page).click({ timeout: 15000 });
+    await page.waitForTimeout(1500);
 
+    await expect(page).toHaveURL(/\/self-service\/ee\/create/);
     await expect(page.locator('main')).toBeVisible({ timeout: 15000 });
 
+    const body = page.locator('body');
     const bt = await body.innerText();
     const hasAdd =
       (await page.locator('[data-testid="add-template-button"]').count()) > 0 ||
@@ -86,17 +98,22 @@ test.describe('Execution Environment Tabview Tests', () => {
       if ((await addBtn.count()) > 0) {
         await addBtn.click({ force: true });
       } else {
-        await page.getByText(/add template/i).first().click({ force: true });
+        await page
+          .getByText(/add template/i)
+          .first()
+          .click({ force: true });
       }
       await page.waitForTimeout(2000);
 
       await page.goto('/self-service/ee', { waitUntil: 'domcontentloaded' });
       await page.waitForTimeout(1000);
-      await page.getByText('Create').first().click({ force: true });
+      await eeCreateTab(page).click({ timeout: 15000 });
       await page.waitForTimeout(1500);
     }
 
-    if ((await page.locator('[data-testid="search-bar-container"]').count()) > 0) {
+    if (
+      (await page.locator('[data-testid="search-bar-container"]').count()) > 0
+    ) {
       const input = page
         .locator('[data-testid="search-bar-container"]')
         .locator('input')
@@ -106,7 +123,9 @@ test.describe('Execution Environment Tabview Tests', () => {
       await input.clear({ force: true });
     }
 
-    const picker = page.locator('[data-testid="user-picker-container"]').first();
+    const picker = page
+      .locator('[data-testid="user-picker-container"]')
+      .first();
     if ((await picker.count()) > 0) {
       const buttons = picker.locator('button, [role="button"]');
       const n = await buttons.count();
@@ -133,7 +152,9 @@ test.describe('Execution Environment Tabview Tests', () => {
     }
 
     const card = page
-      .locator('[data-testid="templates-container"], .MuiCard-root, article, .template')
+      .locator(
+        '[data-testid="templates-container"], .MuiCard-root, article, .template',
+      )
       .first();
     if ((await card.count()) === 0) {
       return;
@@ -152,7 +173,7 @@ test.describe('Execution Environment Tabview Tests', () => {
   test('Validates Create tab sidebar filters: Starred, My Org All, and Tags', async ({
     page,
   }) => {
-    await page.getByText('Create').first().click({ force: true });
+    await eeCreateTab(page).click({ timeout: 15000 });
     await page.waitForTimeout(1500);
     await expect(page.locator('main')).toBeVisible({ timeout: 15000 });
 

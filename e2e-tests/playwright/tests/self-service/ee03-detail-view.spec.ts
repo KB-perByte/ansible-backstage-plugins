@@ -45,14 +45,26 @@ test.describe('Execution Environment Catalog and Detail View Tests', () => {
       }
     }
     if (text.includes('My Org') && text.includes('All')) {
-      await page.getByText('All').first().click({ force: true }).catch(() => {});
+      await page
+        .getByText('All')
+        .first()
+        .click({ force: true })
+        .catch(() => {});
       await page.waitForTimeout(400);
     }
     if (text.includes('Tags')) {
-      await page.getByText('Tags').first().click({ force: true }).catch(() => {});
+      await page
+        .getByText('Tags')
+        .first()
+        .click({ force: true })
+        .catch(() => {});
     }
     if (text.includes('Owner')) {
-      await page.getByText('Owner').first().click({ force: true }).catch(() => {});
+      await page
+        .getByText('Owner')
+        .first()
+        .click({ force: true })
+        .catch(() => {});
     }
   });
 
@@ -72,7 +84,9 @@ test.describe('Execution Environment Catalog and Detail View Tests', () => {
     const tt = await table.innerText();
     for (const col of ['Name', 'Owner', 'Description', 'Tags', 'Actions']) {
       if (tt.includes(col)) {
-        await expect(page.getByText(col, { exact: false }).first()).toBeAttached();
+        await expect(
+          page.getByText(col, { exact: false }).first(),
+        ).toBeAttached();
       }
     }
   });
@@ -91,7 +105,11 @@ test.describe('Execution Environment Catalog and Detail View Tests', () => {
       const b = buttons.nth(i);
       const aria = ((await b.getAttribute('aria-label')) || '').toLowerCase();
       const title = ((await b.getAttribute('title')) || '').toLowerCase();
-      if (aria.includes('favorite') || aria.includes('star') || title.includes('star')) {
+      if (
+        aria.includes('favorite') ||
+        aria.includes('star') ||
+        title.includes('star')
+      ) {
         await b.click({ force: true });
         await page.waitForTimeout(1200);
         await b.click({ force: true }).catch(() => {});
@@ -158,7 +176,9 @@ test.describe('Execution Environment Catalog and Detail View Tests', () => {
       await expect(body).toBeVisible();
     }
     if (t.includes('About') && t.includes('OWNER')) {
-      await expect(body.getByText(/OWNER/i).first()).toBeAttached().catch(() => {});
+      await expect(body.getByText(/OWNER/i).first())
+        .toBeAttached()
+        .catch(() => {});
     }
   });
 });

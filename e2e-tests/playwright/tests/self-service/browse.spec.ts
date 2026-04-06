@@ -43,7 +43,10 @@ test.describe('Ansible self-service Browse Page Functional Tests', () => {
       .locator('input')
       .first();
     if ((await searchInput.count()) === 0) {
-      searchInput = page.locator('[aria-label="search"]').locator('input').first();
+      searchInput = page
+        .locator('[aria-label="search"]')
+        .locator('input')
+        .first();
     }
     if ((await searchInput.count()) === 0) {
       searchInput = page.locator('input[type="search"]').first();
@@ -122,7 +125,9 @@ test.describe('Ansible self-service Browse Page Functional Tests', () => {
     await expect(page).toHaveURL(/\/self-service/);
     await expect(page.locator('main')).toBeVisible();
 
-    const loading = await page.locator('[data-testid="loading-templates"]').count();
+    const loading = await page
+      .locator('[data-testid="loading-templates"]')
+      .count();
     const bodyText = await page.locator('body').innerText();
     const cardCount = await page.locator(templateCardSelector).count();
 

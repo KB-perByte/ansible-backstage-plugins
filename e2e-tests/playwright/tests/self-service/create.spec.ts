@@ -64,7 +64,8 @@ test.describe('Ansible self-service Create and execution tests', () => {
     const hasForm = (await body.locator('form').count()) > 0;
     const text = await body.innerText();
     const hasSteps =
-      text.includes('Step') || (await body.locator('[data-testid*="step"]').count()) > 0;
+      text.includes('Step') ||
+      (await body.locator('[data-testid*="step"]').count()) > 0;
     const hasInputs =
       (await body.locator('input, select, textarea').count()) > 0;
 
@@ -168,13 +169,13 @@ test.describe('Ansible self-service Create and execution tests', () => {
     }
   });
 
-  test('Validates page loads successfully with templates', async ({
-    page,
-  }) => {
+  test('Validates page loads successfully with templates', async ({ page }) => {
     await expect(page).toHaveURL(/\/self-service/);
     await expect(page.locator('main')).toBeVisible();
 
-    const loading = await page.locator('[data-testid="loading-templates"]').count();
+    const loading = await page
+      .locator('[data-testid="loading-templates"]')
+      .count();
     const bodyText = await page.locator('body').innerText();
     const cardCount = await page.locator(templateCardSelector).count();
 

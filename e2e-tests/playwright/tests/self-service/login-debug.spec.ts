@@ -1,4 +1,5 @@
-import { test, expect } from '@playwright/test';
+import { test } from '@playwright/test';
+import { clickRhaapSignIn } from '../../utils/auth';
 
 /**
  * Debug test to see what's actually on the page after login
@@ -16,8 +17,8 @@ test('Debug - check page structure after auth', async ({ page }) => {
     .catch(() => false);
 
   if (needsLogin) {
-    // Do minimal login
-    await page.getByText('Sign In', { exact: true }).click();
+    // Do minimal login (RH AAP row — avoids ambiguous global "Sign In")
+    await clickRhaapSignIn(page);
     await page.waitForLoadState('domcontentloaded');
 
     const loginPageVisible = await page

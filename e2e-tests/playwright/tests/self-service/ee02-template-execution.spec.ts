@@ -32,14 +32,20 @@ test.describe('Execution Environment Template Execution Tests', () => {
       }
     });
 
-    if ((await page.locator('[data-testid="kebab-menu-button"]').count()) === 0) {
+    if (
+      (await page.locator('[data-testid="kebab-menu-button"]').count()) === 0
+    ) {
       test.skip();
     }
 
     await test.step('Kebab → Import Template → catalog-import', async () => {
-      await page.locator('[data-testid="kebab-menu-button"]').click({ force: true });
+      await page
+        .locator('[data-testid="kebab-menu-button"]')
+        .click({ force: true });
       await page.waitForTimeout(400);
-      await page.locator('[data-testid="import-template-button"]').click({ force: true });
+      await page
+        .locator('[data-testid="import-template-button"]')
+        .click({ force: true });
       await page.waitForTimeout(2500);
       const url = page.url();
       if (!url.includes('/self-service/catalog-import')) {
@@ -59,7 +65,9 @@ test.describe('Execution Environment Template Execution Tests', () => {
         .first();
       await urlInput.clear({ force: true });
       await urlInput.fill(EE_TEMPLATE_URL, { force: true });
-      await page.getByRole('button', { name: /analyze/i }).click({ force: true });
+      await page
+        .getByRole('button', { name: /analyze/i })
+        .click({ force: true });
       await page.waitForTimeout(4000);
     });
 
@@ -112,7 +120,10 @@ test.describe('Execution Environment Template Execution Tests', () => {
         }
       }
 
-      const gh = page.locator('body').getByText(/^github$/i).first();
+      const gh = page
+        .locator('body')
+        .getByText(/^github$/i)
+        .first();
       if ((await gh.count()) > 0) {
         await gh.click({ force: true }).catch(() => {});
         await page.waitForTimeout(400);
@@ -144,9 +155,17 @@ test.describe('Execution Environment Template Execution Tests', () => {
 
       const provider = page.getByLabel(/Select source control provider/i);
       if ((await provider.count()) > 0) {
-        await provider.locator('..').locator('[role="button"], input').first().click({ force: true });
+        await provider
+          .locator('..')
+          .locator('[role="button"], input')
+          .first()
+          .click({ force: true });
         await page.waitForTimeout(300);
-        await page.getByText(/^github$/i).first().click({ force: true }).catch(() => {});
+        await page
+          .getByText(/^github$/i)
+          .first()
+          .click({ force: true })
+          .catch(() => {});
       }
 
       await page
@@ -175,11 +194,20 @@ test.describe('Execution Environment Template Execution Tests', () => {
             .fill(REPO_NAME, { force: true });
         });
 
-      await page.getByText(/Create new repository/i).click({ force: true }).catch(() => {});
+      await page
+        .getByText(/Create new repository/i)
+        .click({ force: true })
+        .catch(() => {});
 
-      await page.getByRole('button', { name: /^Next$/i }).first().click({ force: true });
+      await page
+        .getByRole('button', { name: /^Next$/i })
+        .first()
+        .click({ force: true });
       await page.waitForTimeout(1500);
-      await page.getByRole('button', { name: /create/i }).first().click({ force: true });
+      await page
+        .getByRole('button', { name: /create/i })
+        .first()
+        .click({ force: true });
       await page.waitForTimeout(5000);
       await expect(page.locator('body')).toBeVisible({ timeout: 30000 });
     });
@@ -190,7 +218,9 @@ test.describe('Execution Environment Template Execution Tests', () => {
       await page.getByText('Create').first().click({ force: true });
       await page.waitForTimeout(1500);
 
-      if (!(await page.locator('body').innerText()).includes(EE_TEMPLATE_TITLE)) {
+      if (
+        !(await page.locator('body').innerText()).includes(EE_TEMPLATE_TITLE)
+      ) {
         return;
       }
 
@@ -216,7 +246,12 @@ test.describe('Execution Environment Template Execution Tests', () => {
       }
 
       if ((await page.locator('body').innerText()).includes('GitHub')) {
-        await page.locator('body').getByText(/^github$/i).first().click({ force: true }).catch(() => {});
+        await page
+          .locator('body')
+          .getByText(/^github$/i)
+          .first()
+          .click({ force: true })
+          .catch(() => {});
       }
       for (let i = 0; i < 3; i++) {
         const n = page.getByRole('button', { name: /^Next$/i });
@@ -245,7 +280,9 @@ test.describe('Execution Environment Template Execution Tests', () => {
       const count = await publishBoxes.count();
       for (let i = 0; i < count; i++) {
         const box = publishBoxes.nth(i);
-        const label = await box.evaluate(el => el.closest('label, div')?.textContent || '');
+        const label = await box.evaluate(
+          el => el.closest('label, div')?.textContent || '',
+        );
         if (
           label.toLowerCase().includes('publish') &&
           label.toLowerCase().includes('git')
@@ -257,9 +294,15 @@ test.describe('Execution Environment Template Execution Tests', () => {
         }
       }
 
-      await page.getByRole('button', { name: /^Next$/i }).first().click({ force: true });
+      await page
+        .getByRole('button', { name: /^Next$/i })
+        .first()
+        .click({ force: true });
       await page.waitForTimeout(1500);
-      await page.getByRole('button', { name: /create/i }).first().click({ force: true });
+      await page
+        .getByRole('button', { name: /create/i })
+        .first()
+        .click({ force: true });
       await page.waitForTimeout(5000);
     });
   });

@@ -65,7 +65,10 @@ test.describe('Unregister EE Template', () => {
       await page.getByText('Create').first().click({ force: true });
       await page.waitForTimeout(1500);
     } else {
-      await page.getByText(/unregister template/i).first().click({ force: true });
+      await page
+        .getByText(/unregister template/i)
+        .first()
+        .click({ force: true });
       await page.waitForTimeout(1500);
     }
   });
