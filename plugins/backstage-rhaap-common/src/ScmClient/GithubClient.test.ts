@@ -1,7 +1,7 @@
 import { LoggerService } from '@backstage/backend-plugin-api';
 import * as undici from 'undici';
 import { GithubClient } from './GithubClient';
-import type { RepositoryInfo, ScmClientConfig } from './types';
+import { RepositoryInfo, ScmClientConfig } from './types';
 
 // Mock global fetch
 const mockFetch = jest.fn();
@@ -1079,12 +1079,18 @@ describe('GithubClient', () => {
   });
 
   describe('dispatchActionsWorkflow', () => {
-    it('should POST workflow_dispatch with ref and inputs', async () => {
+    it('should POST workflow_dispatch with API version 2026-03-10 and parse run details', async () => {
+      const dispatchBody = JSON.stringify({
+        workflow_run_id: 987654,
+        run_url:
+          'https://api.github.com/repos/acme/widgets/actions/runs/987654',
+        html_url: 'https://github.com/acme/widgets/actions/runs/987654',
+      });
       (fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
-        status: 204,
-        statusText: 'No Content',
-        text: () => Promise.resolve(''),
+        status: 200,
+        statusText: 'OK',
+        text: () => Promise.resolve(dispatchBody),
       });
 
       const result = await client.dispatchActionsWorkflow(
@@ -1101,7 +1107,11 @@ describe('GithubClient', () => {
       );
 
       expect(result.ok).toBe(true);
-      expect(result.status).toBe(204);
+      expect(result.status).toBe(200);
+      expect(result.workflowRunId).toBe(987654);
+      expect(result.workflowRunUrl).toBe(
+        'https://github.com/acme/widgets/actions/runs/987654',
+      );
       expect(fetch).toHaveBeenCalledWith(
         'https://api.github.com/repos/acme/widgets/actions/workflows/ee-build.yml/dispatches',
         expect.objectContaining({
@@ -1110,7 +1120,7 @@ describe('GithubClient', () => {
             Authorization: 'Bearer test-token',
             Accept: 'application/vnd.github+json',
             'Content-Type': 'application/json',
-            'X-GitHub-Api-Version': '2022-11-28',
+            'X-GitHub-Api-Version': '2026-03-10',
           }),
           body: JSON.stringify({
             ref: 'main',
@@ -1123,6 +1133,27 @@ describe('GithubClient', () => {
           }),
         }),
       );
+    });
+
+    it('falls back gracefully when response body is empty (legacy 204)', async () => {
+      (fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        status: 204,
+        statusText: 'No Content',
+        text: () => Promise.resolve(''),
+      });
+
+      const result = await client.dispatchActionsWorkflow(
+        'acme',
+        'widgets',
+        'ee-build.yml',
+        'main',
+        { ee_dir: 'x' },
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.workflowRunId).toBeUndefined();
+      expect(result.workflowRunUrl).toBeUndefined();
     });
 
     it('should return body text when GitHub returns an error', async () => {
@@ -1144,111 +1175,8 @@ describe('GithubClient', () => {
       expect(result.ok).toBe(false);
       expect(result.status).toBe(422);
       expect(result.bodyText).toBe('{"message":"No ref"}');
-    });
-  });
-
-  describe('findRecentWorkflowRun', () => {
-    it('returns the most recent run when created within 30s', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          workflow_runs: [
-            {
-              id: 12345,
-              html_url: 'https://github.com/acme/repo/actions/runs/12345',
-              status: 'queued',
-              created_at: new Date().toISOString(),
-            },
-          ],
-        }),
-      });
-
-      const result = await client.findRecentWorkflowRun(
-        'acme',
-        'repo',
-        'ee-build.yml',
-      );
-      expect(result).toEqual({
-        id: 12345,
-        html_url: 'https://github.com/acme/repo/actions/runs/12345',
-        status: 'queued',
-      });
-    });
-
-    it('returns undefined when the run is older than 30s', async () => {
-      const staleDate = new Date(Date.now() - 60_000).toISOString();
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          workflow_runs: [
-            {
-              id: 1,
-              html_url: 'https://github.com/acme/repo/actions/runs/1',
-              status: 'completed',
-              created_at: staleDate,
-            },
-          ],
-        }),
-      });
-
-      const result = await client.findRecentWorkflowRun(
-        'acme',
-        'repo',
-        'ee-build.yml',
-      );
-      expect(result).toBeUndefined();
-    });
-
-    it('returns undefined when no workflow runs exist', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: async () => ({ workflow_runs: [] }),
-      });
-
-      const result = await client.findRecentWorkflowRun(
-        'acme',
-        'repo',
-        'ee-build.yml',
-      );
-      expect(result).toBeUndefined();
-    });
-
-    it('returns undefined when the API returns non-ok', async () => {
-      mockFetch.mockResolvedValue({
-        ok: false,
-        status: 404,
-      });
-
-      const result = await client.findRecentWorkflowRun(
-        'acme',
-        'repo',
-        'ee-build.yml',
-      );
-      expect(result).toBeUndefined();
-    });
-
-    it('returns undefined when fetch throws', async () => {
-      mockFetch.mockRejectedValue(new Error('network error'));
-
-      const result = await client.findRecentWorkflowRun(
-        'acme',
-        'repo',
-        'ee-build.yml',
-      );
-      expect(result).toBeUndefined();
-    });
-
-    it('builds the correct URL with encoded params', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: async () => ({ workflow_runs: [] }),
-      });
-
-      await client.findRecentWorkflowRun('ac me', 're po', 'build.yml');
-      expect(mockFetch).toHaveBeenCalledWith(
-        'https://api.github.com/repos/ac%20me/re%20po/actions/workflows/build.yml/runs?per_page=1',
-        expect.objectContaining({ method: 'GET' }),
-      );
+      expect(result.workflowRunId).toBeUndefined();
+      expect(result.workflowRunUrl).toBeUndefined();
     });
   });
 });

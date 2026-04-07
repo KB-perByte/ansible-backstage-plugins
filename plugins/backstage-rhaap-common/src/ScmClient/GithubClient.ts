@@ -452,7 +452,9 @@ export class GithubClient extends BaseScmClient {
 
   /**
    * POST /repos/{owner}/{repo}/actions/workflows/{workflow_file}/dispatches
-   * Uses the same REST base URL, auth headers, and TLS behavior as other GitHub calls on this client.
+   *
+   * With API version 2026-03-10 the endpoint returns 200 with
+   * `workflow_run_id`, `run_url`, and `html_url` in the response body.
    */
   async dispatchActionsWorkflow(
     owner: string,
@@ -466,6 +468,8 @@ export class GithubClient extends BaseScmClient {
     status: number;
     statusText: string;
     bodyText: string;
+    workflowRunId?: number;
+    workflowRunUrl?: string;
   }> {
     const path = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(
       repo,
@@ -477,49 +481,31 @@ export class GithubClient extends BaseScmClient {
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2026-03-10',
       },
       body: JSON.stringify({ ref, inputs }),
     });
     const bodyText = await response.text();
+
+    let workflowRunId: number | undefined;
+    let workflowRunUrl: string | undefined;
+    if (response.ok && bodyText.trim()) {
+      try {
+        const data = JSON.parse(bodyText);
+        workflowRunId = data.workflow_run_id ?? undefined;
+        workflowRunUrl = data.html_url ?? undefined;
+      } catch {
+        /* non-JSON body (legacy 204) — ignore */
+      }
+    }
+
     return {
       ok: response.ok,
       status: response.status,
       statusText: response.statusText,
       bodyText,
+      workflowRunId,
+      workflowRunUrl,
     };
-  }
-
-  /**
-   * Best-effort single fetch for the most recent workflow run created in the
-   * last 30 seconds. Returns `undefined` when no matching run is found.
-   */
-  async findRecentWorkflowRun(
-    owner: string,
-    repo: string,
-    workflowFileName: string,
-  ): Promise<{ id: number; html_url: string; status: string } | undefined> {
-    const path = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(
-      repo,
-    )}/actions/workflows/${encodeURIComponent(workflowFileName)}/runs?per_page=1`;
-    const url = `${this.apiUrl}${path}`;
-
-    try {
-      const res = await this.doFetch(url, {
-        method: 'GET',
-        headers: { Accept: 'application/vnd.github+json' },
-      });
-      if (!res.ok) return undefined;
-
-      const data = await res.json();
-      const run = data?.workflow_runs?.[0];
-      if (!run) return undefined;
-
-      const createdAt = new Date(run.created_at).getTime();
-      if (Date.now() - createdAt > 30_000) return undefined;
-
-      return { id: run.id, html_url: run.html_url, status: run.status };
-    } catch {
-      return undefined;
-    }
   }
 }

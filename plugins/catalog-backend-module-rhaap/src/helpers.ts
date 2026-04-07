@@ -166,14 +166,11 @@ export interface EeBuildRequestValidated {
   owner?: string;
   repo?: string;
   host?: string;
-  /** Optional when entityRef is provided (derived from entity annotations). */
-  ee_dir?: string;
-  /** Optional when entityRef is provided (derived from entity annotations). */
-  ee_file_name?: string;
-  ee_registry: string;
-  ee_image_name: string;
-  /** Git branch or tag for workflow_dispatch `ref` (optional). */
-  git_ref?: string;
+  customRegistryUrl: string;
+  imageName: string;
+  imageTag: string;
+  verifyTls: boolean;
+  registryType?: string;
 }
 
 function assertNoControlChars(value: string, field: string): void {
@@ -222,11 +219,11 @@ export function parseEeBuildRequestBody(
   const owner = o.owner;
   const repo = o.repo;
   const host = o.host;
-  const ee_dir = o.ee_dir;
-  const ee_file_name = o.ee_file_name;
-  const ee_registry = o.ee_registry;
-  const ee_image_name = o.ee_image_name;
-  const git_ref = o.git_ref;
+  const customRegistryUrl = o.customRegistryUrl;
+  const imageName = o.imageName;
+  const imageTag = o.imageTag;
+  const verifyTls = o.verifyTls;
+  const registryType = o.registryType;
 
   const hasEntityRef =
     typeof entityRef === 'string' && entityRef.trim().length > 0;
@@ -241,60 +238,44 @@ export function parseEeBuildRequestBody(
   }
 
   for (const [key, val] of [
-    ['ee_registry', ee_registry],
-    ['ee_image_name', ee_image_name],
+    ['customRegistryUrl', customRegistryUrl],
+    ['imageName', imageName],
+    ['imageTag', imageTag],
   ] as const) {
     if (typeof val !== 'string' || !val.trim()) {
       throw new Error(`${key} is required`);
     }
   }
 
-  const registryStr = (ee_registry as string).trim();
-  const imageStr = (ee_image_name as string).trim();
-
-  // ee_dir and ee_file_name are required when entityRef is absent (no entity to derive from)
-  if (!hasEntityRef) {
-    for (const [key, val] of [
-      ['ee_dir', ee_dir],
-      ['ee_file_name', ee_file_name],
-    ] as const) {
-      if (typeof val !== 'string' || !val.trim()) {
-        throw new Error(`${key} is required when entityRef is not provided`);
-      }
-    }
+  if (typeof verifyTls !== 'boolean') {
+    throw new Error('verifyTls is required and must be a boolean');
   }
 
-  let eeDirStr: string | undefined;
-  let eeFileStr: string | undefined;
-  if (typeof ee_dir === 'string' && ee_dir.trim()) {
-    eeDirStr = ee_dir.trim();
-    assertSafeRepoRelativeEeDir(eeDirStr);
-  }
-  if (typeof ee_file_name === 'string' && ee_file_name.trim()) {
-    eeFileStr = ee_file_name.trim();
-    assertSafeEeFileName(eeFileStr);
-  }
+  const registryStr = (customRegistryUrl as string).trim();
+  const imageStr = (imageName as string).trim();
+  const imageTagStr = (imageTag as string).trim();
 
   for (const [val, field] of [
-    [registryStr, 'ee_registry'],
-    [imageStr, 'ee_image_name'],
+    [registryStr, 'customRegistryUrl'],
+    [imageStr, 'imageName'],
   ] as const) {
     if (val.length > 1024) {
       throw new Error(`${field} is too long`);
     }
     assertNoControlChars(val, field);
   }
+  if (imageTagStr.length > 256) {
+    throw new Error('imageTag is too long');
+  }
+  assertNoControlChars(imageTagStr, 'imageTag');
 
-  let gitRefOut: string | undefined;
-  if (git_ref !== undefined) {
-    if (typeof git_ref !== 'string' || !git_ref.trim()) {
-      throw new Error('git_ref must be a non-empty string when provided');
+  let registryTypeStr: string | undefined;
+  if (registryType !== undefined) {
+    if (typeof registryType !== 'string' || !registryType.trim()) {
+      throw new Error('registryType must be a non-empty string when provided');
     }
-    gitRefOut = git_ref.trim();
-    if (gitRefOut.length > 256) {
-      throw new Error('git_ref is too long');
-    }
-    assertNoControlChars(gitRefOut, 'git_ref');
+    registryTypeStr = registryType.trim();
+    assertNoControlChars(registryTypeStr, 'registryType');
   }
 
   return {
@@ -308,11 +289,11 @@ export function parseEeBuildRequestBody(
             : {}),
         }
       : {}),
-    ...(eeDirStr ? { ee_dir: eeDirStr } : {}),
-    ...(eeFileStr ? { ee_file_name: eeFileStr } : {}),
-    ee_registry: registryStr,
-    ee_image_name: imageStr,
-    ...(gitRefOut ? { git_ref: gitRefOut } : {}),
+    customRegistryUrl: registryStr,
+    imageName: imageStr,
+    imageTag: imageTagStr,
+    verifyTls,
+    ...(registryTypeStr ? { registryType: registryTypeStr } : {}),
   };
 }
 

@@ -374,13 +374,10 @@ export async function createRouter(options: {
             return;
           }
 
-          const resolved = resolveGithubRepoForEeBuild(
-            entity,
-            parsedBody.git_ref,
-          );
+          const resolved = resolveGithubRepoForEeBuild(entity);
           gh = resolved;
-          eeDir = parsedBody.ee_dir ?? resolved.eeDir;
-          eeFileName = parsedBody.ee_file_name ?? resolved.eeFileName;
+          eeDir = resolved.eeDir;
+          eeFileName = resolved.eeFileName;
         } catch (error) {
           if (error instanceof ResponseError && error.response.status === 403) {
             response.status(403).json({
@@ -395,16 +392,14 @@ export async function createRouter(options: {
           host: parsedBody.host || 'github.com',
           owner: parsedBody.owner!,
           repo: parsedBody.repo!,
-          ref: parsedBody.git_ref || 'main',
+          ref: 'main',
         };
-        eeDir = parsedBody.ee_dir;
-        eeFileName = parsedBody.ee_file_name;
       }
 
       if (!eeDir || !eeFileName) {
         response.status(400).json({
           error:
-            'Could not determine ee_dir/ee_file_name from entity annotations. Provide them explicitly.',
+            'Could not determine ee_dir/ee_file_name from entity annotations.',
         });
         return;
       }
@@ -448,8 +443,13 @@ export async function createRouter(options: {
           {
             ee_dir: eeDir,
             ee_file_name: eeFileName,
-            ee_registry: parsedBody.ee_registry,
-            ee_image_name: parsedBody.ee_image_name,
+            ee_registry: parsedBody.customRegistryUrl,
+            ee_image_name: parsedBody.imageName,
+            image_build_tag: parsedBody.imageTag,
+            registry_tls_verify: String(parsedBody.verifyTls),
+            ...(parsedBody.registryType
+              ? { registryType: parsedBody.registryType }
+              : {}),
           },
         );
 
@@ -471,17 +471,13 @@ export async function createRouter(options: {
           `[ansible/ee/build] Dispatched ee-build.yml for ${gh.owner}/${gh.repo}@${gh.ref}`,
         );
 
-        const run = await githubClient.findRecentWorkflowRun(
-          gh.owner,
-          gh.repo,
-          'ee-build.yml',
-        );
-
         response.status(202).json({
           message: 'Build started',
-          ...(run && {
-            workflow_id: run.id,
-            workflow_url: run.html_url,
+          ...(ghResp.workflowRunId && {
+            workflow_id: ghResp.workflowRunId,
+          }),
+          ...(ghResp.workflowRunUrl && {
+            workflow_url: ghResp.workflowRunUrl,
           }),
         });
       } catch (error) {

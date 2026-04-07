@@ -2150,10 +2150,10 @@ describe('helpers', () => {
 
   describe('parseEeBuildRequestBody', () => {
     const validBase = {
-      ee_dir: 'ee1',
-      ee_file_name: 'ee1.yml',
-      ee_registry: 'quay.io/org',
-      ee_image_name: 'my-ee',
+      customRegistryUrl: 'quay.io/org',
+      imageName: 'my-ee',
+      imageTag: 'latest',
+      verifyTls: true,
     };
 
     it('accepts entityRef', () => {
@@ -2205,60 +2205,41 @@ describe('helpers', () => {
       ).toThrow('Either entityRef or both owner and repo are required');
     });
 
-    it('allows ee_dir and ee_file_name to be omitted when entityRef is provided', () => {
-      const result = parseEeBuildRequestBody({
-        entityRef: 'component:default/x',
-        ee_registry: 'quay.io/org',
-        ee_image_name: 'img',
-      });
-      expect(result.entityRef).toBe('component:default/x');
-      expect(result.ee_dir).toBeUndefined();
-      expect(result.ee_file_name).toBeUndefined();
-    });
-
-    it('allows partial ee_dir without ee_file_name when entityRef is provided', () => {
-      const result = parseEeBuildRequestBody({
-        entityRef: 'component:default/x',
-        ee_dir: 'custom-dir',
-        ee_registry: 'quay.io/org',
-        ee_image_name: 'img',
-      });
-      expect(result.ee_dir).toBe('custom-dir');
-      expect(result.ee_file_name).toBeUndefined();
-    });
-
-    it('throws when ee_dir is missing with owner/repo (no entityRef)', () => {
+    it('throws when imageTag is missing', () => {
       expect(() =>
         parseEeBuildRequestBody({
           owner: 'acme',
           repo: 'widgets',
-          ee_file_name: 'ee.yml',
-          ee_registry: 'quay.io/org',
-          ee_image_name: 'img',
+          customRegistryUrl: 'quay.io/org',
+          imageName: 'img',
+          verifyTls: true,
         }),
-      ).toThrow('ee_dir is required when entityRef is not provided');
+      ).toThrow('imageTag is required');
     });
 
-    it('throws when ee_file_name is missing with owner/repo (no entityRef)', () => {
+    it('throws when verifyTls is missing', () => {
       expect(() =>
         parseEeBuildRequestBody({
           owner: 'acme',
           repo: 'widgets',
-          ee_dir: 'ee1',
-          ee_registry: 'quay.io/org',
-          ee_image_name: 'img',
+          customRegistryUrl: 'quay.io/org',
+          imageName: 'img',
+          imageTag: 'latest',
         }),
-      ).toThrow('ee_file_name is required when entityRef is not provided');
+      ).toThrow('verifyTls is required and must be a boolean');
     });
 
-    it('accepts optional git_ref', () => {
-      const result = parseEeBuildRequestBody({
-        owner: 'acme',
-        repo: 'widgets',
-        git_ref: 'release-1.0',
-        ...validBase,
-      });
-      expect(result.git_ref).toBe('release-1.0');
+    it('throws when verifyTls is not a boolean', () => {
+      expect(() =>
+        parseEeBuildRequestBody({
+          owner: 'acme',
+          repo: 'widgets',
+          customRegistryUrl: 'quay.io/org',
+          imageName: 'img',
+          imageTag: 'latest',
+          verifyTls: 'yes',
+        }),
+      ).toThrow('verifyTls is required and must be a boolean');
     });
 
     it('throws for non-object body', () => {
