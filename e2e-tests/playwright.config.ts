@@ -18,10 +18,14 @@ export default defineConfig({
   // Retry configuration (similar to Cypress runMode: 2)
   retries: process.env.CI ? 2 : 0,
 
-  // Timeouts
-  timeout: 60 * 1000, // 60s per test
+  // Timeouts (configurable via environment variables for CI)
+  timeout: process.env.PLAYWRIGHT_TEST_TIMEOUT
+    ? parseInt(process.env.PLAYWRIGHT_TEST_TIMEOUT)
+    : 60 * 1000, // Default: 60s per test
   expect: {
-    timeout: 10000, // 10s for assertions (auto-retry)
+    timeout: process.env.PLAYWRIGHT_EXPECT_TIMEOUT
+      ? parseInt(process.env.PLAYWRIGHT_EXPECT_TIMEOUT)
+      : 10000, // Default: 10s for assertions
   },
 
   // Reporters - similar to Cypress multi-reporters setup
@@ -44,11 +48,15 @@ export default defineConfig({
     // Viewport (matching Cypress config)
     viewport: { width: 1920, height: 1080 },
 
-    // Action timeout (default for click, fill, etc.)
-    actionTimeout: 10000,
+    // Action timeout (default for click, fill, etc.) - configurable for CI
+    actionTimeout: process.env.PLAYWRIGHT_ACTION_TIMEOUT
+      ? parseInt(process.env.PLAYWRIGHT_ACTION_TIMEOUT)
+      : 10000,
 
-    // Navigation timeout
-    navigationTimeout: 30000,
+    // Navigation timeout - configurable for CI
+    navigationTimeout: process.env.PLAYWRIGHT_NAVIGATION_TIMEOUT
+      ? parseInt(process.env.PLAYWRIGHT_NAVIGATION_TIMEOUT)
+      : 30000,
 
     // Ignore HTTPS errors (matching Cypress chromeWebSecurity: false)
     ignoreHTTPSErrors: true,
