@@ -137,7 +137,10 @@ export function parseGitHubRepoFromSourceUrl(
     }
     const host = u.hostname;
     const parts = u.pathname.split('/').filter(Boolean);
-    if (parts.length >= 4 && (parts[2] === 'blob' || parts[2] === 'tree')) {
+    if (
+      parts.length >= 4 &&
+      (parts[2] === 'blob' || parts[2] === 'tree' || parts[2] === 'edit')
+    ) {
       const remaining = parts.slice(4).join('/');
       return {
         host,
@@ -356,6 +359,10 @@ export function resolveGithubRepoForEeBuild(
     } else {
       eeDir = '.';
       eeFileName = parsed.filePath;
+    }
+    if (eeFileName === 'catalog-info.yaml') {
+      const entityName = entity.metadata?.name ?? '';
+      eeFileName = entityName ? `${entityName}.yml` : undefined;
     }
   }
 
