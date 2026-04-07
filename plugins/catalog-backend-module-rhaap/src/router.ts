@@ -342,37 +342,56 @@ export async function createRouter(options: {
         return;
       }
 
-      const credentials = (
-        response.locals as Record<string, BackstageCredentials | undefined>
-      )[EE_BUILD_CATALOG_CREDENTIALS_LOCALS_KEY];
-      if (!credentials) {
-        response
-          .status(500)
-          .json({ error: 'Internal error: missing auth context for EE build' });
-        return;
-      }
+      let gh: { host: string; owner: string; repo: string; ref: string };
 
-      try {
-        const { token: catalogToken } = await auth.getPluginRequestToken({
-          onBehalfOf: credentials,
-          targetPluginId: 'catalog',
-        });
-
-        const entity = await catalogClient.getEntityByRef(
-          parsedBody.entityRef,
-          {
-            token: catalogToken,
-          },
-        );
-        if (!entity) {
-          response.status(404).json({
-            error: 'Entity not found or not visible with your credentials',
+      if (parsedBody.entityRef) {
+        const credentials = (
+          response.locals as Record<string, BackstageCredentials | undefined>
+        )[EE_BUILD_CATALOG_CREDENTIALS_LOCALS_KEY];
+        if (!credentials) {
+          response.status(500).json({
+            error: 'Internal error: missing auth context for EE build',
           });
           return;
         }
 
-        const gh = resolveGithubRepoForEeBuild(entity, parsedBody.git_ref);
+        try {
+          const { token: catalogToken } = await auth.getPluginRequestToken({
+            onBehalfOf: credentials,
+            targetPluginId: 'catalog',
+          });
 
+          const entity = await catalogClient.getEntityByRef(
+            parsedBody.entityRef,
+            { token: catalogToken },
+          );
+          if (!entity) {
+            response.status(404).json({
+              error: 'Entity not found or not visible with your credentials',
+            });
+            return;
+          }
+
+          gh = resolveGithubRepoForEeBuild(entity, parsedBody.git_ref);
+        } catch (error) {
+          if (error instanceof ResponseError && error.response.status === 403) {
+            response.status(403).json({
+              error: 'Not allowed to read this entity with your credentials',
+            });
+            return;
+          }
+          throw error;
+        }
+      } else {
+        gh = {
+          host: parsedBody.host || 'github.com',
+          owner: parsedBody.owner!,
+          repo: parsedBody.repo!,
+          ref: parsedBody.git_ref || 'main',
+        };
+      }
+
+      try {
         if (!isSafeHostname(gh.host)) {
           response
             .status(400)
@@ -448,12 +467,6 @@ export async function createRouter(options: {
           }),
         });
       } catch (error) {
-        if (error instanceof ResponseError && error.response.status === 403) {
-          response.status(403).json({
-            error: 'Not allowed to read this entity with your credentials',
-          });
-          return;
-        }
         const msg = error instanceof Error ? error.message : String(error);
         if (
           msg.includes('execution-environment') ||

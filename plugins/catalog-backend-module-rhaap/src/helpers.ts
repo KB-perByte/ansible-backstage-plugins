@@ -158,7 +158,10 @@ export function parseGitHubRepoFromSourceUrl(
 }
 
 export interface EeBuildRequestValidated {
-  entityRef: string;
+  entityRef?: string;
+  owner?: string;
+  repo?: string;
+  host?: string;
   ee_dir: string;
   ee_file_name: string;
   ee_registry: string;
@@ -210,15 +213,27 @@ export function parseEeBuildRequestBody(
   }
   const o = body as Record<string, unknown>;
   const entityRef = o.entityRef;
+  const owner = o.owner;
+  const repo = o.repo;
+  const host = o.host;
   const ee_dir = o.ee_dir;
   const ee_file_name = o.ee_file_name;
   const ee_registry = o.ee_registry;
   const ee_image_name = o.ee_image_name;
   const git_ref = o.git_ref;
 
-  if (typeof entityRef !== 'string' || !entityRef.trim()) {
-    throw new Error('entityRef is required');
+  const hasEntityRef =
+    typeof entityRef === 'string' && entityRef.trim().length > 0;
+  const hasOwnerRepo =
+    typeof owner === 'string' &&
+    owner.trim().length > 0 &&
+    typeof repo === 'string' &&
+    repo.trim().length > 0;
+
+  if (!hasEntityRef && !hasOwnerRepo) {
+    throw new Error('Either entityRef or both owner and repo are required');
   }
+
   for (const [key, val] of [
     ['ee_dir', ee_dir],
     ['ee_file_name', ee_file_name],
@@ -260,7 +275,16 @@ export function parseEeBuildRequestBody(
   }
 
   return {
-    entityRef: entityRef.trim(),
+    ...(hasEntityRef ? { entityRef: (entityRef as string).trim() } : {}),
+    ...(hasOwnerRepo
+      ? {
+          owner: (owner as string).trim(),
+          repo: (repo as string).trim(),
+          ...(typeof host === 'string' && host.trim()
+            ? { host: host.trim() }
+            : {}),
+        }
+      : {}),
     ee_dir: eeDirStr,
     ee_file_name: eeFileStr,
     ee_registry: registryStr,
