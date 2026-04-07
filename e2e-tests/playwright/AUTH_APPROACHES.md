@@ -148,7 +148,10 @@ npx ts-node playwright/scripts/manual-login.ts
 **Implementation:** `utils/auth-aap-first.ts` — `buildAapOAuthAuthorizeUrl()` builds `/o/authorize/` from `AAP_URL`, `BASE_URL`, `OAUTH_CLIENT_ID`, and optional `OAUTH_SCOPE` (see `e2e-tests/.env.example`).
 
 ```typescript
-import { buildAapOAuthAuthorizeUrl, loginAAPSessionFirst } from './utils/auth-aap-first';
+import {
+  buildAapOAuthAuthorizeUrl,
+  loginAAPSessionFirst,
+} from './utils/auth-aap-first';
 
 const aapOAuthUrl = buildAapOAuthAuthorizeUrl();
 await page.goto(aapOAuthUrl);

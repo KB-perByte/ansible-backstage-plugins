@@ -43,16 +43,16 @@ yarn pw:test playwright/tests/self-service/login.spec.ts
 
 Copy `e2e-tests/.env.example` to `e2e-tests/.env` and fill in values. Playwright loads `.env` via `dotenv` in `playwright.config.ts`.
 
-| Variable | Required for | Description |
-| -------- | ------------ | ----------- |
-| `BASE_URL` | All portal tests | Origin of the Backstage app (e.g. `http://localhost:7071`). Used as Playwright `baseURL` and in OAuth `redirect_uri`. |
-| `AAP_USER_ID` | RHAAP login | AAP username for the sign-in form. |
-| `AAP_USER_PASS` | RHAAP login | AAP password for the sign-in form. |
-| `AAP_URL` | `loginAAPSessionFirst` / `buildAapOAuthAuthorizeUrl` only | AAP controller base URL (same as `auth.providers.rhaap.development.host`), e.g. `https://aap.example.com`. Not required for the default `loginAAP` flow (portal → Sign In → AAP). |
-| `OAUTH_CLIENT_ID` | `loginAAPSessionFirst` / `buildAapOAuthAuthorizeUrl` | OAuth client id registered in AAP for this portal; must match `auth.providers.rhaap.development.clientId` in app-config. |
-| `OAUTH_SCOPE` | Optional | Scope for `/o/authorize/` (default `read`). |
-| `EE_IMPORT_REPO_URL` | Optional | Template import URL for EE execution tests; see `.env.example`. |
-| `GH_USER_ID` / `GH_USER_PASS` / `AUTHENTICATOR_SECRET` | RHDH + GitHub | For RHDH specs that sign in via GitHub (including 2FA). |
+| Variable                                               | Required for                                              | Description                                                                                                                                                                       |
+| ------------------------------------------------------ | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BASE_URL`                                             | All portal tests                                          | Origin of the Backstage app (e.g. `http://localhost:7071`). Used as Playwright `baseURL` and in OAuth `redirect_uri`.                                                             |
+| `AAP_USER_ID`                                          | RHAAP login                                               | AAP username for the sign-in form.                                                                                                                                                |
+| `AAP_USER_PASS`                                        | RHAAP login                                               | AAP password for the sign-in form.                                                                                                                                                |
+| `AAP_URL`                                              | `loginAAPSessionFirst` / `buildAapOAuthAuthorizeUrl` only | AAP controller base URL (same as `auth.providers.rhaap.development.host`), e.g. `https://aap.example.com`. Not required for the default `loginAAP` flow (portal → Sign In → AAP). |
+| `OAUTH_CLIENT_ID`                                      | `loginAAPSessionFirst` / `buildAapOAuthAuthorizeUrl`      | OAuth client id registered in AAP for this portal; must match `auth.providers.rhaap.development.clientId` in app-config.                                                          |
+| `OAUTH_SCOPE`                                          | Optional                                                  | Scope for `/o/authorize/` (default `read`).                                                                                                                                       |
+| `EE_IMPORT_REPO_URL`                                   | Optional                                                  | Template import URL for EE execution tests; see `.env.example`.                                                                                                                   |
+| `GH_USER_ID` / `GH_USER_PASS` / `AUTHENTICATOR_SECRET` | RHDH + GitHub                                             | For RHDH specs that sign in via GitHub (including 2FA).                                                                                                                           |
 
 **Auth helpers**
 

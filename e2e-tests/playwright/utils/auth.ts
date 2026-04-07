@@ -42,7 +42,10 @@ export async function loginAAP(page: Page) {
     const url = page.url();
     if (
       url.includes('/self-service') &&
-      (await page.locator('main').isVisible().catch(() => false))
+      (await page
+        .locator('main')
+        .isVisible()
+        .catch(() => false))
     ) {
       console.log('[Auth] Already authenticated (self-service) ✓');
       return;
@@ -159,7 +162,10 @@ export async function loginAAP(page: Page) {
   // when main is visible and the sign-in gate is not shown (label may not be "Templates" on all routes)
   const url = page.url();
   const onSelfService = url.includes('/self-service');
-  const mainVisible = await page.locator('main').isVisible().catch(() => false);
+  const mainVisible = await page
+    .locator('main')
+    .isVisible()
+    .catch(() => false);
 
   if (onSelfService && mainVisible && !signInPromptVisible) {
     console.log('[Auth] Authenticated on self-service app ✓');
@@ -185,7 +191,9 @@ export async function loginAAP(page: Page) {
 
   console.log('[Auth] Final URL:', page.url());
 
-  console.log('[Auth] Waiting for Templates navigation or self-service shell...');
+  console.log(
+    '[Auth] Waiting for Templates navigation or self-service shell...',
+  );
   const templatesOrShell = page
     .getByText('Templates', { exact: true })
     .first()

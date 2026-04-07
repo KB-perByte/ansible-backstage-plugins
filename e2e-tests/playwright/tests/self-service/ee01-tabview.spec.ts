@@ -46,7 +46,9 @@ test.describe('Execution Environment Tabview Tests', () => {
   test('Validates Catalog tab: empty state CTA redirects to Create tab', async ({
     page,
   }) => {
-    await page.goto('/self-service/ee/catalog', { waitUntil: 'domcontentloaded' });
+    await page.goto('/self-service/ee/catalog', {
+      waitUntil: 'domcontentloaded',
+    });
     await expect(page).toHaveURL(/\/self-service\/ee\/catalog/);
     await page.waitForTimeout(800);
 
@@ -96,7 +98,10 @@ test.describe('Execution Environment Tabview Tests', () => {
       if ((await addBtn.count()) > 0) {
         await addBtn.click({ force: true });
       } else {
-        await page.getByText(/add template/i).first().click({ force: true });
+        await page
+          .getByText(/add template/i)
+          .first()
+          .click({ force: true });
       }
       await page.waitForTimeout(2000);
 
@@ -106,7 +111,9 @@ test.describe('Execution Environment Tabview Tests', () => {
       await page.waitForTimeout(1500);
     }
 
-    if ((await page.locator('[data-testid="search-bar-container"]').count()) > 0) {
+    if (
+      (await page.locator('[data-testid="search-bar-container"]').count()) > 0
+    ) {
       const input = page
         .locator('[data-testid="search-bar-container"]')
         .locator('input')
@@ -116,7 +123,9 @@ test.describe('Execution Environment Tabview Tests', () => {
       await input.clear({ force: true });
     }
 
-    const picker = page.locator('[data-testid="user-picker-container"]').first();
+    const picker = page
+      .locator('[data-testid="user-picker-container"]')
+      .first();
     if ((await picker.count()) > 0) {
       const buttons = picker.locator('button, [role="button"]');
       const n = await buttons.count();
@@ -143,7 +152,9 @@ test.describe('Execution Environment Tabview Tests', () => {
     }
 
     const card = page
-      .locator('[data-testid="templates-container"], .MuiCard-root, article, .template')
+      .locator(
+        '[data-testid="templates-container"], .MuiCard-root, article, .template',
+      )
       .first();
     if ((await card.count()) === 0) {
       return;
