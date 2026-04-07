@@ -137,7 +137,10 @@ export function parseGitHubRepoFromSourceUrl(
     }
     const host = u.hostname;
     const parts = u.pathname.split('/').filter(Boolean);
-    if (parts.length >= 4 && (parts[2] === 'blob' || parts[2] === 'tree')) {
+    if (
+      parts.length >= 4 &&
+      (parts[2] === 'blob' || parts[2] === 'tree' || parts[2] === 'edit')
+    ) {
       const remaining = parts.slice(4).join('/');
       return {
         host,
