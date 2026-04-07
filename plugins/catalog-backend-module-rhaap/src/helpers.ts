@@ -1,13 +1,23 @@
-import type { Request, Response, RequestHandler } from 'express';
+import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import type {
+  BackstageCredentials,
   LoggerService,
   HttpAuthService,
   UserInfoService,
   AuthService,
+  PermissionsService,
 } from '@backstage/backend-plugin-api';
 import type { CatalogClient } from '@backstage/catalog-client';
+import type { Entity } from '@backstage/catalog-model';
+import { ANNOTATION_EDIT_URL } from '@backstage/catalog-model';
 import type { Config } from '@backstage/config';
 import type { JsonValue } from '@backstage/types';
+import type {
+  BasicPermission,
+  Permission,
+  ResourcePermission,
+} from '@backstage/plugin-permission-common';
+import { AuthorizeResult } from '@backstage/plugin-permission-common';
 import type {
   DefaultGithubCredentialsProvider,
   ScmIntegrationRegistry,
@@ -96,6 +106,267 @@ export function isSafeHostname(host: string): boolean {
     return false;
   }
   return /^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$/.test(host);
+}
+
+/** Parsed GitHub repository from a source/edit URL pointing at a blob or tree. */
+export interface ParsedGitHubRepoFromSource {
+  host: string;
+  owner: string;
+  repo: string;
+  /** Branch or tag from the URL path (used as default workflow_dispatch ref). */
+  defaultRef: string;
+  /** Remaining path segments after ref (e.g. "ee1/execution-environment.yml"). */
+  filePath?: string;
+}
+
+/**
+ * Parses `https://{host}/{owner}/{repo}/blob/{ref}/...` or `/tree/{ref}/...`.
+ * Also accepts `https://{host}/{owner}/{repo}` with default ref `main`.
+ */
+export function parseGitHubRepoFromSourceUrl(
+  raw: string | undefined,
+): ParsedGitHubRepoFromSource | null {
+  if (!raw?.trim()) {
+    return null;
+  }
+  try {
+    const url = raw.replace(/^url:/i, '').trim();
+    const u = new URL(url);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+      return null;
+    }
+    const host = u.hostname;
+    const parts = u.pathname.split('/').filter(Boolean);
+    if (parts.length >= 4 && (parts[2] === 'blob' || parts[2] === 'tree')) {
+      const remaining = parts.slice(4).join('/');
+      return {
+        host,
+        owner: parts[0]!,
+        repo: parts[1]!,
+        defaultRef: parts[3]!,
+        ...(remaining ? { filePath: remaining } : {}),
+      };
+    }
+    if (parts.length === 2) {
+      return {
+        host,
+        owner: parts[0]!,
+        repo: parts[1]!,
+        defaultRef: 'main',
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export interface EeBuildRequestValidated {
+  entityRef?: string;
+  owner?: string;
+  repo?: string;
+  host?: string;
+  customRegistryUrl: string;
+  imageName: string;
+  imageTag: string;
+  verifyTls: boolean;
+  registryType?: string;
+}
+
+function assertNoControlChars(value: string, field: string): void {
+  // eslint-disable-next-line no-control-regex
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throw new Error(`${field} contains invalid characters`);
+  }
+}
+
+/** Rejects path traversal and absolute paths for a repo-relative directory. */
+export function assertSafeRepoRelativeEeDir(eeDir: string): void {
+  const normalized = eeDir.trim().replace(/\\/g, '/');
+  if (normalized.startsWith('/')) {
+    throw new Error('ee_dir must be relative to the repository root');
+  }
+  for (const segment of normalized.split('/')) {
+    if (segment === '..') {
+      throw new Error('ee_dir must not contain path traversal (..)');
+    }
+  }
+}
+
+/** File name only for EE definition (no directory components). */
+export function assertSafeEeFileName(fileName: string): void {
+  const t = fileName.trim();
+  if (t.includes('/') || t.includes('\\')) {
+    throw new Error('ee_file_name must be a file name without path separators');
+  }
+  if (t === '.' || t === '..') {
+    throw new Error('ee_file_name is invalid');
+  }
+}
+
+/**
+ * Validates POST /ansible/ee/build JSON body.
+ * @throws Error with a message suitable for HTTP 400 responses.
+ */
+export function parseEeBuildRequestBody(
+  body: unknown,
+): EeBuildRequestValidated {
+  if (!body || typeof body !== 'object') {
+    throw new Error('Request body must be a JSON object');
+  }
+  const o = body as Record<string, unknown>;
+  const entityRef = o.entityRef;
+  const owner = o.owner;
+  const repo = o.repo;
+  const host = o.host;
+  const customRegistryUrl = o.customRegistryUrl;
+  const imageName = o.imageName;
+  const imageTag = o.imageTag;
+  const verifyTls = o.verifyTls;
+  const registryType = o.registryType;
+
+  const hasEntityRef =
+    typeof entityRef === 'string' && entityRef.trim().length > 0;
+  const hasOwnerRepo =
+    typeof owner === 'string' &&
+    owner.trim().length > 0 &&
+    typeof repo === 'string' &&
+    repo.trim().length > 0;
+
+  if (!hasEntityRef && !hasOwnerRepo) {
+    throw new Error('Either entityRef or both owner and repo are required');
+  }
+
+  for (const [key, val] of [
+    ['customRegistryUrl', customRegistryUrl],
+    ['imageName', imageName],
+    ['imageTag', imageTag],
+  ] as const) {
+    if (typeof val !== 'string' || !val.trim()) {
+      throw new Error(`${key} is required`);
+    }
+  }
+
+  if (typeof verifyTls !== 'boolean') {
+    throw new Error('verifyTls is required and must be a boolean');
+  }
+
+  const registryStr = (customRegistryUrl as string).trim();
+  const imageStr = (imageName as string).trim();
+  const imageTagStr = (imageTag as string).trim();
+
+  for (const [val, field] of [
+    [registryStr, 'customRegistryUrl'],
+    [imageStr, 'imageName'],
+  ] as const) {
+    if (val.length > 1024) {
+      throw new Error(`${field} is too long`);
+    }
+    assertNoControlChars(val, field);
+  }
+  if (imageTagStr.length > 256) {
+    throw new Error('imageTag is too long');
+  }
+  assertNoControlChars(imageTagStr, 'imageTag');
+
+  let registryTypeStr: string | undefined;
+  if (registryType !== undefined) {
+    if (typeof registryType !== 'string' || !registryType.trim()) {
+      throw new Error('registryType must be a non-empty string when provided');
+    }
+    registryTypeStr = registryType.trim();
+    assertNoControlChars(registryTypeStr, 'registryType');
+  }
+
+  return {
+    ...(hasEntityRef ? { entityRef: (entityRef as string).trim() } : {}),
+    ...(hasOwnerRepo
+      ? {
+          owner: (owner as string).trim(),
+          repo: (repo as string).trim(),
+          ...(typeof host === 'string' && host.trim()
+            ? { host: host.trim() }
+            : {}),
+        }
+      : {}),
+    customRegistryUrl: registryStr,
+    imageName: imageStr,
+    imageTag: imageTagStr,
+    verifyTls,
+    ...(registryTypeStr ? { registryType: registryTypeStr } : {}),
+  };
+}
+
+/** Resolved GitHub repository + ref for dispatching `ee-build.yml` via workflow_dispatch. */
+export interface EeGithubDispatchContext {
+  host: string;
+  owner: string;
+  repo: string;
+  ref: string;
+  /** Directory containing the EE definition, derived from the annotation file path. */
+  eeDir?: string;
+  /** EE definition file name, derived from the annotation file path. */
+  eeFileName?: string;
+}
+
+/**
+ * Derives owner/repo/ref from a catalog EE Component's GitHub source or edit URL.
+ * @throws Error with a message suitable for HTTP 400 when the entity cannot be used for a GitHub EE build.
+ */
+export function resolveGithubRepoForEeBuild(
+  entity: Entity,
+  gitRefOverride?: string,
+): EeGithubDispatchContext {
+  if (entity.kind !== 'Component') {
+    throw new Error('Execution Environment build requires a Component entity');
+  }
+  if (entity.spec?.type !== 'execution-environment') {
+    throw new Error('Entity spec.type must be execution-environment');
+  }
+  const ann = entity.metadata?.annotations ?? {};
+  const editUrl =
+    typeof ann[ANNOTATION_EDIT_URL] === 'string'
+      ? ann[ANNOTATION_EDIT_URL]
+      : '';
+  const sourceLoc =
+    typeof ann['backstage.io/source-location'] === 'string'
+      ? ann['backstage.io/source-location']
+      : '';
+  const raw = (editUrl || sourceLoc).trim();
+  if (!raw) {
+    throw new Error(
+      'Execution Environment is missing a Git source annotation (backstage.io/source-location or edit URL)',
+    );
+  }
+  const url = raw.replace(/^url:/i, '').trim();
+  const parsed = parseGitHubRepoFromSourceUrl(url);
+  if (!parsed) {
+    throw new Error(
+      'Execution Environment source URL is not a GitHub repository URL; EE build workflow is GitHub-only',
+    );
+  }
+
+  let eeDir: string | undefined;
+  let eeFileName: string | undefined;
+  if (parsed.filePath) {
+    const lastSlash = parsed.filePath.lastIndexOf('/');
+    if (lastSlash >= 0) {
+      eeDir = parsed.filePath.substring(0, lastSlash);
+      eeFileName = parsed.filePath.substring(lastSlash + 1);
+    } else {
+      eeDir = '.';
+      eeFileName = parsed.filePath;
+    }
+  }
+
+  return {
+    host: parsed.host,
+    owner: parsed.owner,
+    repo: parsed.repo,
+    ref: (gitRefOverride ?? parsed.defaultRef).trim(),
+    ...(eeDir ? { eeDir } : {}),
+    ...(eeFileName ? { eeFileName } : {}),
+  };
 }
 
 export function getSkipTlsVerifyHosts(config: Config): string[] {
@@ -343,6 +614,84 @@ export interface RequireSuperuserDeps {
    * If empty/undefined, any service principal is allowed.
    */
   allowedExternalAccessSubjects?: string[];
+}
+
+/** Same allowlist semantics as sync superuser routes: optional subject filter for service principals. */
+export interface RequireUserOrExternalAccessDeps {
+  httpAuth: HttpAuthService;
+  auth: AuthService;
+  logger: LoggerService;
+  allowedExternalAccessSubjects?: string[];
+}
+
+/** `res.locals` key where EE build middleware stores credentials for the route handler. */
+export const EE_BUILD_CATALOG_CREDENTIALS_LOCALS_KEY =
+  'rhaapEeBuildCatalogCredentials' as const;
+
+/**
+ * Authenticates the request as a Backstage user or an allowed external-access (service) principal.
+ * @returns Credentials when the caller may proceed; otherwise sends 401/403 and returns null.
+ */
+export function checkRequireUserOrExternalAccess(
+  deps: RequireUserOrExternalAccessDeps,
+): (req: Request, res: Response) => Promise<BackstageCredentials | null> {
+  const { httpAuth, auth, logger, allowedExternalAccessSubjects } = deps;
+  return async (
+    req: Request,
+    res: Response,
+  ): Promise<BackstageCredentials | null> => {
+    try {
+      const credentials = await httpAuth.credentials(req as any, {
+        allow: ['user', 'service'],
+      });
+      if (auth.isPrincipal(credentials, 'service')) {
+        const subject = credentials.principal.subject;
+        const allowed =
+          !allowedExternalAccessSubjects?.length ||
+          allowedExternalAccessSubjects.includes(subject);
+        if (allowed) {
+          logger.info(
+            `[EE build] Allowing request: external access (service principal, subject=${subject})`,
+          );
+          return credentials;
+        }
+        logger.warn(
+          `[EE build] Rejecting request: service principal subject '${subject}' not in allowedExternalAccessSubjects`,
+        );
+        res.status(403).json({
+          error:
+            'Forbidden: external access subject not allowed for this endpoint',
+        });
+        return null;
+      }
+      return credentials;
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logger.debug(`[EE build] Authentication failed: ${errorMessage}`);
+      res.status(401).json({ error: 'Authentication required' });
+      return null;
+    }
+  };
+}
+
+/**
+ * Middleware for POST /ansible/ee/build: user session or allowlisted external access token.
+ * Stores {@link BackstageCredentials} on `res.locals[EE_BUILD_CATALOG_CREDENTIALS_LOCALS_KEY]`.
+ */
+export function createRequireUserOrExternalAccessMiddleware(
+  deps: RequireUserOrExternalAccessDeps,
+): RequestHandler {
+  const authenticate = checkRequireUserOrExternalAccess(deps);
+  return async (req: Request, res: Response, next: (err?: unknown) => void) => {
+    const credentials = await authenticate(req, res);
+    if (credentials) {
+      (res.locals as Record<string, BackstageCredentials>)[
+        EE_BUILD_CATALOG_CREDENTIALS_LOCALS_KEY
+      ] = credentials;
+      next();
+    }
+  };
 }
 
 /**
@@ -625,4 +974,88 @@ export async function handleGitLabCIActivity(
     );
     response.status(502).json({ error: 'Failed to fetch GitLab pipelines' });
   }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Permission-check middleware factory                                */
+/* ------------------------------------------------------------------ */
+
+export interface PermissionMiddlewareDeps {
+  httpAuth: HttpAuthService;
+  permissions: PermissionsService;
+}
+
+/**
+ * Creates an Express middleware that resolves credentials and evaluates a
+ * mixed list of basic and resource permissions.
+ *
+ * Basic permissions (`type: 'basic'`) are checked via `authorize`; the result
+ * is `true` when `AuthorizeResult.ALLOW`.
+ *
+ * Resource permissions (`type: 'resource'`) are checked via
+ * `authorizeConditional`; the result is `true` when the decision is **not**
+ * `AuthorizeResult.DENY` (i.e. ALLOW or CONDITIONAL).
+ *
+ * On success the following are attached to `response.locals`:
+ *  - `credentials`  – the resolved {@link BackstageCredentials}
+ *  - `permissions`  – a `Record<string, boolean>` keyed by permission name
+ *
+ * The middleware does **not** enforce any policy; it is the caller's
+ * responsibility to inspect the map and return 403 when appropriate.
+ *
+ * @param deps - httpAuth and permissions services
+ * @param permissionsToCheck - basic and/or resource permissions to evaluate
+ */
+export function createPermissionCheckMiddleware(
+  deps: PermissionMiddlewareDeps,
+  permissionsToCheck: Permission[],
+): RequestHandler {
+  const { httpAuth, permissions } = deps;
+
+  const basicPerms = permissionsToCheck.filter(
+    (p): p is BasicPermission => p.type === 'basic',
+  );
+  const resourcePerms = permissionsToCheck.filter(
+    (p): p is ResourcePermission => p.type === 'resource',
+  );
+
+  return async (
+    request: Request,
+    response: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      const credentials = await httpAuth.credentials(request as any);
+
+      const [basicDecisions, conditionalDecisions] = await Promise.all([
+        basicPerms.length
+          ? permissions.authorize(
+              basicPerms.map(permission => ({ permission })),
+              { credentials },
+            )
+          : Promise.resolve([]),
+        resourcePerms.length
+          ? permissions.authorizeConditional(
+              resourcePerms.map(permission => ({ permission })),
+              { credentials },
+            )
+          : Promise.resolve([]),
+      ]);
+
+      const results: Record<string, boolean> = {};
+      basicPerms.forEach((perm, i) => {
+        results[perm.name] = basicDecisions[i].result === AuthorizeResult.ALLOW;
+      });
+      resourcePerms.forEach((perm, i) => {
+        results[perm.name] =
+          conditionalDecisions[i].result !== AuthorizeResult.DENY;
+      });
+
+      response.locals.credentials = credentials;
+      response.locals.permissions = results;
+      next();
+    } catch (err) {
+      next(err);
+    }
+  };
 }

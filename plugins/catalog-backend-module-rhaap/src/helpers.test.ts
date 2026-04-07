@@ -10,6 +10,7 @@ jest.mock('@ansible/backstage-rhaap-common', () => {
   };
 });
 
+import { ANNOTATION_EDIT_URL } from '@backstage/catalog-model';
 import { ConfigReader } from '@backstage/config';
 import {
   formatNameSpace,
@@ -24,9 +25,13 @@ import {
   buildInvalidRepositoryResults,
   getSyncResponseStatusCode,
   checkRequireSuperuser,
+  checkRequireUserOrExternalAccess,
   createRequireSuperuserMiddleware,
-  type RequireSuperuserDeps,
-  type CIActivityDeps,
+  createRequireUserOrExternalAccessMiddleware,
+  EE_BUILD_CATALOG_CREDENTIALS_LOCALS_KEY,
+  RequireSuperuserDeps,
+  CIActivityDeps,
+  RequireUserOrExternalAccessDeps,
   isSafeHostname,
   getGitHubIntegrationForHost,
   getGitLabIntegrationForHost,
@@ -35,7 +40,12 @@ import {
   isGitLabHostAllowedForProxy,
   handleGitHubCIActivity,
   handleGitLabCIActivity,
+  resolveGithubRepoForEeBuild,
+  parseEeBuildRequestBody,
+  parseGitHubRepoFromSourceUrl,
+  createPermissionCheckMiddleware,
 } from './helpers';
+import { AuthorizeResult } from '@backstage/plugin-permission-common';
 import type { AnsibleGitContentsProvider } from './providers/AnsibleGitContentsProvider';
 
 describe('helpers', () => {
@@ -1333,6 +1343,380 @@ describe('helpers', () => {
     });
   });
 
+  describe('checkRequireUserOrExternalAccess', () => {
+    function createEeAuthDeps(
+      overrides: Partial<RequireUserOrExternalAccessDeps> = {},
+    ): RequireUserOrExternalAccessDeps {
+      return {
+        httpAuth: {
+          credentials: jest.fn().mockResolvedValue({ $user: true }),
+        } as any,
+        auth: {
+          isPrincipal: jest
+            .fn()
+            .mockImplementation((_: unknown, type: string) => type === 'user'),
+        } as any,
+        logger: {
+          info: jest.fn(),
+          warn: jest.fn(),
+          error: jest.fn(),
+          debug: jest.fn(),
+          child: jest.fn().mockReturnThis(),
+        } as any,
+        ...overrides,
+      };
+    }
+
+    it('returns user credentials when principal is user', async () => {
+      const userCreds = { principal: { type: 'user' } };
+      const deps = createEeAuthDeps({
+        httpAuth: {
+          credentials: jest.fn().mockResolvedValue(userCreds),
+        } as any,
+      });
+      const check = checkRequireUserOrExternalAccess(deps);
+      const res = {
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn().mockReturnThis(),
+      } as any;
+      const out = await check({} as any, res);
+      expect(out).toBe(userCreds);
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it('allows service principal when subject is in allowlist', async () => {
+      const svcCreds = { principal: { type: 'service', subject: 'bot-a' } };
+      const deps = createEeAuthDeps({
+        httpAuth: {
+          credentials: jest.fn().mockResolvedValue(svcCreds),
+        } as any,
+        auth: {
+          isPrincipal: jest
+            .fn()
+            .mockImplementation(
+              (_: unknown, type: string) => type === 'service',
+            ),
+        } as any,
+        allowedExternalAccessSubjects: ['bot-a'],
+      });
+      const check = checkRequireUserOrExternalAccess(deps);
+      const res = {
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn().mockReturnThis(),
+      } as any;
+      const out = await check({} as any, res);
+      expect(out).toBe(svcCreds);
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it('rejects service principal when subject not in allowlist', async () => {
+      const svcCreds = { principal: { type: 'service', subject: 'evil' } };
+      const deps = createEeAuthDeps({
+        httpAuth: {
+          credentials: jest.fn().mockResolvedValue(svcCreds),
+        } as any,
+        auth: {
+          isPrincipal: jest
+            .fn()
+            .mockImplementation(
+              (_: unknown, type: string) => type === 'service',
+            ),
+        } as any,
+        allowedExternalAccessSubjects: ['bot-a'],
+      });
+      const check = checkRequireUserOrExternalAccess(deps);
+      const res = {
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn().mockReturnThis(),
+      } as any;
+      const out = await check({} as any, res);
+      expect(out).toBeNull();
+      expect(res.status).toHaveBeenCalledWith(403);
+    });
+
+    it('sends 401 when credentials fail', async () => {
+      const deps = createEeAuthDeps({
+        httpAuth: {
+          credentials: jest.fn().mockRejectedValue(new Error('no cookie')),
+        } as any,
+      });
+      const check = checkRequireUserOrExternalAccess(deps);
+      const res = {
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn().mockReturnThis(),
+      } as any;
+      const out = await check({} as any, res);
+      expect(out).toBeNull();
+      expect(res.status).toHaveBeenCalledWith(401);
+    });
+  });
+
+  describe('createRequireUserOrExternalAccessMiddleware', () => {
+    it('sets res.locals and calls next when authenticated', async () => {
+      const userCreds = { principal: { type: 'user' } };
+      const deps: RequireUserOrExternalAccessDeps = {
+        httpAuth: {
+          credentials: jest.fn().mockResolvedValue(userCreds),
+        } as any,
+        auth: {
+          isPrincipal: jest
+            .fn()
+            .mockImplementation((_: unknown, type: string) => type === 'user'),
+        } as any,
+        logger: {
+          info: jest.fn(),
+          warn: jest.fn(),
+          error: jest.fn(),
+          debug: jest.fn(),
+          child: jest.fn().mockReturnThis(),
+        } as any,
+      };
+      const middleware = createRequireUserOrExternalAccessMiddleware(deps);
+      const next = jest.fn();
+      const res: any = {
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn().mockReturnThis(),
+        locals: {},
+      };
+      await middleware({} as any, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(res.locals[EE_BUILD_CATALOG_CREDENTIALS_LOCALS_KEY]).toBe(
+        userCreds,
+      );
+    });
+  });
+
+  describe('resolveGithubRepoForEeBuild', () => {
+    it('resolves owner, repo, ref, eeDir and eeFileName from GitHub blob source-location', () => {
+      const entity = {
+        apiVersion: 'backstage.io/v1alpha1',
+        kind: 'Component',
+        metadata: {
+          name: 'ee1',
+          annotations: {
+            'backstage.io/source-location':
+              'url:https://github.com/acme/widgets/blob/develop/my-ee/ee1.yml',
+          },
+        },
+        spec: { type: 'execution-environment' },
+      };
+      expect(resolveGithubRepoForEeBuild(entity)).toEqual({
+        host: 'github.com',
+        owner: 'acme',
+        repo: 'widgets',
+        ref: 'develop',
+        eeDir: 'my-ee',
+        eeFileName: 'ee1.yml',
+      });
+    });
+
+    it('prefers edit URL over source-location when both exist', () => {
+      const entity = {
+        apiVersion: 'backstage.io/v1alpha1',
+        kind: 'Component',
+        metadata: {
+          name: 'ee1',
+          annotations: {
+            [ANNOTATION_EDIT_URL]:
+              'https://github.com/other/other-repo/blob/main/x.yml',
+            'backstage.io/source-location':
+              'url:https://github.com/acme/widgets/blob/develop/e.yml',
+          },
+        },
+        spec: { type: 'execution-environment' },
+      };
+      expect(resolveGithubRepoForEeBuild(entity).owner).toBe('other');
+    });
+
+    it('applies git_ref override', () => {
+      const entity = {
+        apiVersion: 'backstage.io/v1alpha1',
+        kind: 'Component',
+        metadata: {
+          name: 'ee1',
+          annotations: {
+            'backstage.io/source-location':
+              'url:https://github.com/org/repo/blob/main/a.yml',
+          },
+        },
+        spec: { type: 'execution-environment' },
+      };
+      expect(resolveGithubRepoForEeBuild(entity, 'release-1.0').ref).toBe(
+        'release-1.0',
+      );
+    });
+
+    it('sets eeDir to "." when file is at repo root', () => {
+      const entity = {
+        apiVersion: 'backstage.io/v1alpha1',
+        kind: 'Component',
+        metadata: {
+          name: 'ee1',
+          annotations: {
+            'backstage.io/source-location':
+              'url:https://github.com/org/repo/blob/main/ee.yml',
+          },
+        },
+        spec: { type: 'execution-environment' },
+      };
+      const result = resolveGithubRepoForEeBuild(entity);
+      expect(result.eeDir).toBe('.');
+      expect(result.eeFileName).toBe('ee.yml');
+    });
+
+    it('omits eeDir/eeFileName when URL has no file path (tree URL)', () => {
+      const entity = {
+        apiVersion: 'backstage.io/v1alpha1',
+        kind: 'Component',
+        metadata: {
+          name: 'ee1',
+          annotations: {
+            'backstage.io/source-location':
+              'url:https://github.com/org/repo/tree/main/',
+          },
+        },
+        spec: { type: 'execution-environment' },
+      };
+      const result = resolveGithubRepoForEeBuild(entity);
+      expect(result.eeDir).toBeUndefined();
+      expect(result.eeFileName).toBeUndefined();
+    });
+
+    it('handles nested directory paths', () => {
+      const entity = {
+        apiVersion: 'backstage.io/v1alpha1',
+        kind: 'Component',
+        metadata: {
+          name: 'ee1',
+          annotations: {
+            'backstage.io/source-location':
+              'url:https://github.com/org/repo/blob/main/envs/prod/ee.yml',
+          },
+        },
+        spec: { type: 'execution-environment' },
+      };
+      const result = resolveGithubRepoForEeBuild(entity);
+      expect(result.eeDir).toBe('envs/prod');
+      expect(result.eeFileName).toBe('ee.yml');
+    });
+
+    it('throws when kind is not Component', () => {
+      expect(() =>
+        resolveGithubRepoForEeBuild({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: 'Template',
+          metadata: { name: 't' },
+          spec: { type: 'execution-environment' },
+        } as any),
+      ).toThrow('Component');
+    });
+
+    it('throws when spec.type is not execution-environment', () => {
+      expect(() =>
+        resolveGithubRepoForEeBuild({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: 'Component',
+          metadata: {
+            name: 'x',
+            annotations: {
+              'backstage.io/source-location':
+                'url:https://github.com/o/r/blob/main/a.yml',
+            },
+          },
+          spec: { type: 'service' },
+        } as any),
+      ).toThrow('execution-environment');
+    });
+
+    it('throws for non-GitHub source URL', () => {
+      expect(() =>
+        resolveGithubRepoForEeBuild({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: 'Component',
+          metadata: {
+            name: 'x',
+            annotations: {
+              'backstage.io/source-location':
+                'url:https://gitlab.com/group/project/-/blob/main/a.yml',
+            },
+          },
+          spec: { type: 'execution-environment' },
+        } as any),
+      ).toThrow('GitHub');
+    });
+  });
+
+  describe('parseGitHubRepoFromSourceUrl', () => {
+    it('returns null for empty input', () => {
+      expect(parseGitHubRepoFromSourceUrl(undefined)).toBeNull();
+      expect(parseGitHubRepoFromSourceUrl('')).toBeNull();
+      expect(parseGitHubRepoFromSourceUrl('  ')).toBeNull();
+    });
+
+    it('parses blob URL with file path', () => {
+      const result = parseGitHubRepoFromSourceUrl(
+        'https://github.com/acme/repo/blob/main/ee1/ee.yml',
+      );
+      expect(result).toEqual({
+        host: 'github.com',
+        owner: 'acme',
+        repo: 'repo',
+        defaultRef: 'main',
+        filePath: 'ee1/ee.yml',
+      });
+    });
+
+    it('parses blob URL with nested directories', () => {
+      const result = parseGitHubRepoFromSourceUrl(
+        'https://github.com/org/repo/blob/develop/envs/prod/my-ee.yml',
+      );
+      expect(result).toEqual({
+        host: 'github.com',
+        owner: 'org',
+        repo: 'repo',
+        defaultRef: 'develop',
+        filePath: 'envs/prod/my-ee.yml',
+      });
+    });
+
+    it('omits filePath when no segments follow ref', () => {
+      const result = parseGitHubRepoFromSourceUrl(
+        'https://github.com/org/repo/tree/main/',
+      );
+      expect(result).toEqual({
+        host: 'github.com',
+        owner: 'org',
+        repo: 'repo',
+        defaultRef: 'main',
+      });
+      expect(result!.filePath).toBeUndefined();
+    });
+
+    it('parses owner/repo only URL with default ref', () => {
+      const result = parseGitHubRepoFromSourceUrl(
+        'https://github.com/org/repo',
+      );
+      expect(result).toEqual({
+        host: 'github.com',
+        owner: 'org',
+        repo: 'repo',
+        defaultRef: 'main',
+      });
+      expect(result!.filePath).toBeUndefined();
+    });
+
+    it('strips url: prefix', () => {
+      const result = parseGitHubRepoFromSourceUrl(
+        'url:https://github.com/org/repo/blob/main/dir/file.yml',
+      );
+      expect(result!.filePath).toBe('dir/file.yml');
+    });
+
+    it('returns null for non-http(s) protocol', () => {
+      expect(parseGitHubRepoFromSourceUrl('ftp://github.com/o/r')).toBeNull();
+    });
+  });
+
   describe('getSkipTlsVerifyHosts', () => {
     it('returns empty array when config not set', () => {
       const config = new ConfigReader({});
@@ -1761,6 +2145,301 @@ describe('helpers', () => {
       const res = createMockResponse();
       await handleGitLabCIActivity(mockDeps, req, res, 10);
       expect(res.statusCode).toBe(200);
+    });
+  });
+
+  describe('parseEeBuildRequestBody', () => {
+    const validBase = {
+      customRegistryUrl: 'quay.io/org',
+      imageName: 'my-ee',
+      imageTag: 'latest',
+      verifyTls: true,
+    };
+
+    it('accepts entityRef', () => {
+      const result = parseEeBuildRequestBody({
+        entityRef: 'component:default/my-ee',
+        ...validBase,
+      });
+      expect(result.entityRef).toBe('component:default/my-ee');
+      expect(result.owner).toBeUndefined();
+    });
+
+    it('accepts owner and repo without entityRef', () => {
+      const result = parseEeBuildRequestBody({
+        owner: 'acme',
+        repo: 'widgets',
+        ...validBase,
+      });
+      expect(result.entityRef).toBeUndefined();
+      expect(result.owner).toBe('acme');
+      expect(result.repo).toBe('widgets');
+      expect(result.host).toBeUndefined();
+    });
+
+    it('accepts owner, repo, and host', () => {
+      const result = parseEeBuildRequestBody({
+        owner: 'acme',
+        repo: 'widgets',
+        host: 'ghe.example.com',
+        ...validBase,
+      });
+      expect(result.host).toBe('ghe.example.com');
+    });
+
+    it('throws when neither entityRef nor owner/repo provided', () => {
+      expect(() => parseEeBuildRequestBody({ ...validBase })).toThrow(
+        'Either entityRef or both owner and repo are required',
+      );
+    });
+
+    it('throws when only owner provided without repo', () => {
+      expect(() =>
+        parseEeBuildRequestBody({ owner: 'acme', ...validBase }),
+      ).toThrow('Either entityRef or both owner and repo are required');
+    });
+
+    it('throws when only repo provided without owner', () => {
+      expect(() =>
+        parseEeBuildRequestBody({ repo: 'widgets', ...validBase }),
+      ).toThrow('Either entityRef or both owner and repo are required');
+    });
+
+    it('throws when imageTag is missing', () => {
+      expect(() =>
+        parseEeBuildRequestBody({
+          owner: 'acme',
+          repo: 'widgets',
+          customRegistryUrl: 'quay.io/org',
+          imageName: 'img',
+          verifyTls: true,
+        }),
+      ).toThrow('imageTag is required');
+    });
+
+    it('throws when verifyTls is missing', () => {
+      expect(() =>
+        parseEeBuildRequestBody({
+          owner: 'acme',
+          repo: 'widgets',
+          customRegistryUrl: 'quay.io/org',
+          imageName: 'img',
+          imageTag: 'latest',
+        }),
+      ).toThrow('verifyTls is required and must be a boolean');
+    });
+
+    it('throws when verifyTls is not a boolean', () => {
+      expect(() =>
+        parseEeBuildRequestBody({
+          owner: 'acme',
+          repo: 'widgets',
+          customRegistryUrl: 'quay.io/org',
+          imageName: 'img',
+          imageTag: 'latest',
+          verifyTls: 'yes',
+        }),
+      ).toThrow('verifyTls is required and must be a boolean');
+    });
+
+    it('throws for non-object body', () => {
+      expect(() => parseEeBuildRequestBody(null)).toThrow(
+        'Request body must be a JSON object',
+      );
+    });
+
+    it('trims whitespace from fields', () => {
+      const result = parseEeBuildRequestBody({
+        owner: '  acme  ',
+        repo: '  widgets  ',
+        ...validBase,
+      });
+      expect(result.owner).toBe('acme');
+      expect(result.repo).toBe('widgets');
+    });
+  });
+
+  describe('createPermissionCheckMiddleware', () => {
+    let mockHttpAuth: any;
+    let mockPermissions: any;
+    let deps: any;
+
+    beforeEach(() => {
+      mockHttpAuth = {
+        credentials: jest
+          .fn()
+          .mockResolvedValue({ principal: { type: 'user' } }),
+      };
+      mockPermissions = {
+        authorize: jest.fn().mockResolvedValue([]),
+        authorizeConditional: jest.fn().mockResolvedValue([]),
+      };
+      deps = { httpAuth: mockHttpAuth, permissions: mockPermissions };
+    });
+
+    function makeMockReqRes() {
+      const req = { headers: {} } as any;
+      const res = {
+        locals: {},
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn().mockReturnThis(),
+      } as any;
+      const next = jest.fn();
+      return { req, res, next };
+    }
+
+    it('attaches credentials and permission results to response.locals', async () => {
+      const basicPerm = {
+        type: 'basic' as const,
+        name: 'test.view',
+        attributes: {},
+      };
+      mockPermissions.authorize.mockResolvedValue([
+        { result: AuthorizeResult.ALLOW },
+      ]);
+
+      const middleware = createPermissionCheckMiddleware(deps, [basicPerm]);
+      const { req, res, next } = makeMockReqRes();
+      await middleware(req, res, next);
+
+      expect(res.locals.credentials).toEqual({ principal: { type: 'user' } });
+      expect(res.locals.permissions).toEqual({ 'test.view': true });
+      expect(next).toHaveBeenCalledWith();
+    });
+
+    it('maps DENY to false for basic permissions', async () => {
+      const perm = {
+        type: 'basic' as const,
+        name: 'test.view',
+        attributes: {},
+      };
+      mockPermissions.authorize.mockResolvedValue([
+        { result: AuthorizeResult.DENY },
+      ]);
+
+      const middleware = createPermissionCheckMiddleware(deps, [perm]);
+      const { req, res, next } = makeMockReqRes();
+      await middleware(req, res, next);
+
+      expect(res.locals.permissions).toEqual({ 'test.view': false });
+      expect(next).toHaveBeenCalled();
+    });
+
+    it('handles resource permissions via authorizeConditional', async () => {
+      const resourcePerm = {
+        type: 'resource' as const,
+        name: 'catalog.entity.read',
+        attributes: {},
+        resourceType: 'catalog-entity',
+      };
+      mockPermissions.authorizeConditional.mockResolvedValue([
+        { result: AuthorizeResult.CONDITIONAL },
+      ]);
+
+      const middleware = createPermissionCheckMiddleware(deps, [resourcePerm]);
+      const { req, res, next } = makeMockReqRes();
+      await middleware(req, res, next);
+
+      expect(res.locals.permissions).toEqual({ 'catalog.entity.read': true });
+      expect(next).toHaveBeenCalled();
+    });
+
+    it('maps DENY to false for resource permissions', async () => {
+      const resourcePerm = {
+        type: 'resource' as const,
+        name: 'catalog.entity.read',
+        attributes: {},
+        resourceType: 'catalog-entity',
+      };
+      mockPermissions.authorizeConditional.mockResolvedValue([
+        { result: AuthorizeResult.DENY },
+      ]);
+
+      const middleware = createPermissionCheckMiddleware(deps, [resourcePerm]);
+      const { req, res, next } = makeMockReqRes();
+      await middleware(req, res, next);
+
+      expect(res.locals.permissions).toEqual({ 'catalog.entity.read': false });
+    });
+
+    it('handles mixed basic and resource permissions', async () => {
+      const basicPerm = {
+        type: 'basic' as const,
+        name: 'ee.view',
+        attributes: {},
+      };
+      const resourcePerm = {
+        type: 'resource' as const,
+        name: 'catalog.entity.read',
+        attributes: {},
+        resourceType: 'catalog-entity',
+      };
+      mockPermissions.authorize.mockResolvedValue([
+        { result: AuthorizeResult.ALLOW },
+      ]);
+      mockPermissions.authorizeConditional.mockResolvedValue([
+        { result: AuthorizeResult.CONDITIONAL },
+      ]);
+
+      const middleware = createPermissionCheckMiddleware(deps, [
+        basicPerm,
+        resourcePerm,
+      ]);
+      const { req, res, next } = makeMockReqRes();
+      await middleware(req, res, next);
+
+      expect(res.locals.permissions).toEqual({
+        'ee.view': true,
+        'catalog.entity.read': true,
+      });
+    });
+
+    it('skips authorize call when no basic permissions', async () => {
+      const resourcePerm = {
+        type: 'resource' as const,
+        name: 'catalog.entity.read',
+        attributes: {},
+        resourceType: 'catalog-entity',
+      };
+      mockPermissions.authorizeConditional.mockResolvedValue([
+        { result: AuthorizeResult.ALLOW },
+      ]);
+
+      const middleware = createPermissionCheckMiddleware(deps, [resourcePerm]);
+      const { req, res, next } = makeMockReqRes();
+      await middleware(req, res, next);
+
+      expect(mockPermissions.authorize).not.toHaveBeenCalled();
+      expect(mockPermissions.authorizeConditional).toHaveBeenCalled();
+    });
+
+    it('skips authorizeConditional call when no resource permissions', async () => {
+      const basicPerm = {
+        type: 'basic' as const,
+        name: 'ee.view',
+        attributes: {},
+      };
+      mockPermissions.authorize.mockResolvedValue([
+        { result: AuthorizeResult.ALLOW },
+      ]);
+
+      const middleware = createPermissionCheckMiddleware(deps, [basicPerm]);
+      const { req, res, next } = makeMockReqRes();
+      await middleware(req, res, next);
+
+      expect(mockPermissions.authorizeConditional).not.toHaveBeenCalled();
+    });
+
+    it('calls next(err) when httpAuth.credentials throws', async () => {
+      const perm = { type: 'basic' as const, name: 'ee.view', attributes: {} };
+      const error = new Error('auth failed');
+      mockHttpAuth.credentials.mockRejectedValue(error);
+
+      const middleware = createPermissionCheckMiddleware(deps, [perm]);
+      const { req, res, next } = makeMockReqRes();
+      await middleware(req, res, next);
+
+      expect(next).toHaveBeenCalledWith(error);
     });
   });
 });

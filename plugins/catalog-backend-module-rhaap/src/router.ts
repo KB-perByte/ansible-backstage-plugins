@@ -16,9 +16,11 @@
 import express from 'express';
 import Router from 'express-promise-router';
 import type { Config } from '@backstage/config';
+import { ResponseError } from '@backstage/errors';
 
 import { AAPJobTemplateProvider } from './providers/AAPJobTemplateProvider';
 import { AAPEntityProvider } from './providers/AAPEntityProvider';
+import type { BackstageCredentials } from '@backstage/backend-plugin-api';
 import {
   LoggerService,
   HttpAuthService,
@@ -48,11 +50,22 @@ import {
   buildInvalidRepositoryResults,
   resolveProvidersToRun,
   createRequireSuperuserMiddleware,
+  createRequireUserOrExternalAccessMiddleware,
+  createPermissionCheckMiddleware,
+  EE_BUILD_CATALOG_CREDENTIALS_LOCALS_KEY,
   handleGitHubCIActivity,
   handleGitLabCIActivity,
+  getGitHubIntegrationForHost,
+  isSafeHostname,
+  isGitHubHostAllowedForProxy,
+  parseEeBuildRequestBody,
+  resolveGithubRepoForEeBuild,
 } from './helpers';
 import { EEEntityProvider } from './providers/EEEntityProvider';
-import { ScmClientFactory } from '@ansible/backstage-rhaap-common';
+import {
+  createGithubClientForWorkflowDispatch,
+  ScmClientFactory,
+} from '@ansible/backstage-rhaap-common';
 
 export async function createRouter(options: {
   logger: LoggerService;
@@ -109,6 +122,14 @@ export async function createRouter(options: {
     logger,
     allowedExternalAccessSubjects,
   });
+
+  const requireUserOrExternalAccessForEeBuild =
+    createRequireUserOrExternalAccessMiddleware({
+      httpAuth,
+      auth,
+      logger,
+      allowedExternalAccessSubjects,
+    });
 
   router.get('/health', (_, response) => {
     logger.info('PONG!');
@@ -288,6 +309,194 @@ export async function createRouter(options: {
       });
     }
   });
+
+  /**
+   * Triggers GitHub Actions `ee-build.yml` via workflow_dispatch.
+   * Authenticated Backstage user or allowlisted external-access (service) token; loads the EE entity
+   * with that principal's catalog token so RBAC applies.
+   */
+  router.post(
+    '/ansible/ee/build',
+    express.json(),
+    requireUserOrExternalAccessForEeBuild,
+    createPermissionCheckMiddleware({ httpAuth, permissions }, [
+      executionEnvironmentsViewPermission,
+      catalogEntityReadPermission,
+    ]),
+    async (request, response) => {
+      const perms = response.locals.permissions as Record<string, boolean>;
+      if (!Object.values(perms).every(Boolean)) {
+        response
+          .status(403)
+          .json({ error: 'Forbidden: insufficient permissions' });
+        return;
+      }
+
+      let parsedBody;
+      try {
+        parsedBody = parseEeBuildRequestBody(request.body);
+      } catch (e) {
+        response.status(400).json({
+          error: e instanceof Error ? e.message : String(e),
+        });
+        return;
+      }
+
+      let gh: { host: string; owner: string; repo: string; ref: string };
+      let eeDir: string | undefined;
+      let eeFileName: string | undefined;
+
+      if (parsedBody.entityRef) {
+        const credentials = (
+          response.locals as Record<string, BackstageCredentials | undefined>
+        )[EE_BUILD_CATALOG_CREDENTIALS_LOCALS_KEY];
+        if (!credentials) {
+          response.status(500).json({
+            error: 'Internal error: missing auth context for EE build',
+          });
+          return;
+        }
+
+        try {
+          const { token: catalogToken } = await auth.getPluginRequestToken({
+            onBehalfOf: credentials,
+            targetPluginId: 'catalog',
+          });
+
+          const entity = await catalogClient.getEntityByRef(
+            parsedBody.entityRef,
+            { token: catalogToken },
+          );
+          if (!entity) {
+            response.status(404).json({
+              error: 'Entity not found or not visible with your credentials',
+            });
+            return;
+          }
+
+          const resolved = resolveGithubRepoForEeBuild(entity);
+          gh = resolved;
+          eeDir = resolved.eeDir;
+          eeFileName = resolved.eeFileName;
+        } catch (error) {
+          if (error instanceof ResponseError && error.response.status === 403) {
+            response.status(403).json({
+              error: 'Not allowed to read this entity with your credentials',
+            });
+            return;
+          }
+          throw error;
+        }
+      } else {
+        gh = {
+          host: parsedBody.host || 'github.com',
+          owner: parsedBody.owner!,
+          repo: parsedBody.repo!,
+          ref: 'main',
+        };
+      }
+
+      if (!eeDir || !eeFileName) {
+        response.status(400).json({
+          error:
+            'Could not determine ee_dir/ee_file_name from entity annotations.',
+        });
+        return;
+      }
+
+      try {
+        if (!isSafeHostname(gh.host)) {
+          response
+            .status(400)
+            .json({ error: 'Invalid GitHub host in entity URL' });
+          return;
+        }
+        if (!isGitHubHostAllowedForProxy(config, gh.host)) {
+          response.status(400).json({
+            error: `Host '${gh.host}' is not allowed. Configure it under integrations.github.`,
+          });
+          return;
+        }
+
+        const { apiBaseUrl } = getGitHubIntegrationForHost(config, gh.host);
+        const githubToken = request.headers['x-github-token'] as string;
+        if (!githubToken) {
+          response.status(400).json({
+            error:
+              'No GitHub token available to dispatch the workflow. Send X-Github-Token header.',
+          });
+          return;
+        }
+
+        const githubClient = createGithubClientForWorkflowDispatch({
+          logger,
+          host: gh.host,
+          token: githubToken,
+          apiBaseUrl,
+        });
+
+        const ghResp = await githubClient.dispatchActionsWorkflow(
+          gh.owner,
+          gh.repo,
+          'ee-build.yml',
+          gh.ref,
+          {
+            ee_dir: eeDir,
+            ee_file_name: eeFileName,
+            ee_registry: parsedBody.customRegistryUrl,
+            ee_image_name: parsedBody.imageName,
+            image_build_tag: parsedBody.imageTag,
+            registry_tls_verify: String(parsedBody.verifyTls),
+            ...(parsedBody.registryType
+              ? { registryType: parsedBody.registryType }
+              : {}),
+          },
+        );
+
+        if (!ghResp.ok) {
+          logger.warn('[ansible/ee/build] GitHub workflow_dispatch failed', {
+            status: ghResp.status,
+            owner: gh.owner,
+            repo: gh.repo,
+            body: ghResp.bodyText,
+          });
+          const clientErr = ghResp.status >= 400 && ghResp.status < 500;
+          response.status(clientErr ? ghResp.status : 502).json({
+            error: `GitHub workflow_dispatch failed: ${ghResp.bodyText || ghResp.statusText}`,
+          });
+          return;
+        }
+
+        logger.info(
+          `[ansible/ee/build] Dispatched ee-build.yml for ${gh.owner}/${gh.repo}@${gh.ref}`,
+        );
+
+        response.status(202).json({
+          message: 'Build started',
+          ...(ghResp.workflowRunId && {
+            workflow_id: ghResp.workflowRunId,
+          }),
+          ...(ghResp.workflowRunUrl && {
+            workflow_url: ghResp.workflowRunUrl,
+          }),
+        });
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        if (
+          msg.includes('execution-environment') ||
+          msg.includes('GitHub') ||
+          msg.includes('source') ||
+          msg.includes('Component')
+        ) {
+          logger.debug(`[ansible/ee/build] Bad request: ${msg}`);
+          response.status(400).json({ error: msg });
+          return;
+        }
+        logger.error(`[ansible/ee/build] ${msg}`);
+        response.status(500).json({ error: msg });
+      }
+    },
+  );
 
   router.post(
     '/ansible/sync/from-aap/content',
