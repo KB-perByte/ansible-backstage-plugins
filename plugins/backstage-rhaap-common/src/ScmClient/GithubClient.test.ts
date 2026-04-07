@@ -1146,4 +1146,109 @@ describe('GithubClient', () => {
       expect(result.bodyText).toBe('{"message":"No ref"}');
     });
   });
+
+  describe('findRecentWorkflowRun', () => {
+    it('returns the most recent run when created within 30s', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          workflow_runs: [
+            {
+              id: 12345,
+              html_url: 'https://github.com/acme/repo/actions/runs/12345',
+              status: 'queued',
+              created_at: new Date().toISOString(),
+            },
+          ],
+        }),
+      });
+
+      const result = await client.findRecentWorkflowRun(
+        'acme',
+        'repo',
+        'ee-build.yml',
+      );
+      expect(result).toEqual({
+        id: 12345,
+        html_url: 'https://github.com/acme/repo/actions/runs/12345',
+        status: 'queued',
+      });
+    });
+
+    it('returns undefined when the run is older than 30s', async () => {
+      const staleDate = new Date(Date.now() - 60_000).toISOString();
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          workflow_runs: [
+            {
+              id: 1,
+              html_url: 'https://github.com/acme/repo/actions/runs/1',
+              status: 'completed',
+              created_at: staleDate,
+            },
+          ],
+        }),
+      });
+
+      const result = await client.findRecentWorkflowRun(
+        'acme',
+        'repo',
+        'ee-build.yml',
+      );
+      expect(result).toBeUndefined();
+    });
+
+    it('returns undefined when no workflow runs exist', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ workflow_runs: [] }),
+      });
+
+      const result = await client.findRecentWorkflowRun(
+        'acme',
+        'repo',
+        'ee-build.yml',
+      );
+      expect(result).toBeUndefined();
+    });
+
+    it('returns undefined when the API returns non-ok', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 404,
+      });
+
+      const result = await client.findRecentWorkflowRun(
+        'acme',
+        'repo',
+        'ee-build.yml',
+      );
+      expect(result).toBeUndefined();
+    });
+
+    it('returns undefined when fetch throws', async () => {
+      mockFetch.mockRejectedValue(new Error('network error'));
+
+      const result = await client.findRecentWorkflowRun(
+        'acme',
+        'repo',
+        'ee-build.yml',
+      );
+      expect(result).toBeUndefined();
+    });
+
+    it('builds the correct URL with encoded params', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ workflow_runs: [] }),
+      });
+
+      await client.findRecentWorkflowRun('ac me', 're po', 'build.yml');
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.github.com/repos/ac%20me/re%20po/actions/workflows/build.yml/runs?per_page=1',
+        expect.objectContaining({ method: 'GET' }),
+      );
+    });
+  });
 });
