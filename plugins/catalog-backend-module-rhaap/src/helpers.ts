@@ -360,6 +360,10 @@ export function resolveGithubRepoForEeBuild(
       eeDir = '.';
       eeFileName = parsed.filePath;
     }
+    if (eeFileName === 'catalog-info.yaml') {
+      const entityName = entity.metadata?.name ?? '';
+      eeFileName = entityName ? `${entityName}.yml` : undefined;
+    }
   }
 
   return {
