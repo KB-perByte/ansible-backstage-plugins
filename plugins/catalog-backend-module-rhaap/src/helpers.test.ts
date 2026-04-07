@@ -42,6 +42,7 @@ import {
   handleGitLabCIActivity,
   resolveGithubRepoForEeBuild,
   parseEeBuildRequestBody,
+  parseGitHubRepoFromSourceUrl,
   createPermissionCheckMiddleware,
 } from './helpers';
 import { AuthorizeResult } from '@backstage/plugin-permission-common';
@@ -1486,7 +1487,7 @@ describe('helpers', () => {
   });
 
   describe('resolveGithubRepoForEeBuild', () => {
-    it('resolves owner, repo, and ref from GitHub blob source-location', () => {
+    it('resolves owner, repo, ref, eeDir and eeFileName from GitHub blob source-location', () => {
       const entity = {
         apiVersion: 'backstage.io/v1alpha1',
         kind: 'Component',
@@ -1504,6 +1505,8 @@ describe('helpers', () => {
         owner: 'acme',
         repo: 'widgets',
         ref: 'develop',
+        eeDir: 'my-ee',
+        eeFileName: 'ee1.yml',
       });
     });
 
@@ -1541,6 +1544,60 @@ describe('helpers', () => {
       expect(resolveGithubRepoForEeBuild(entity, 'release-1.0').ref).toBe(
         'release-1.0',
       );
+    });
+
+    it('sets eeDir to "." when file is at repo root', () => {
+      const entity = {
+        apiVersion: 'backstage.io/v1alpha1',
+        kind: 'Component',
+        metadata: {
+          name: 'ee1',
+          annotations: {
+            'backstage.io/source-location':
+              'url:https://github.com/org/repo/blob/main/ee.yml',
+          },
+        },
+        spec: { type: 'execution-environment' },
+      };
+      const result = resolveGithubRepoForEeBuild(entity);
+      expect(result.eeDir).toBe('.');
+      expect(result.eeFileName).toBe('ee.yml');
+    });
+
+    it('omits eeDir/eeFileName when URL has no file path (tree URL)', () => {
+      const entity = {
+        apiVersion: 'backstage.io/v1alpha1',
+        kind: 'Component',
+        metadata: {
+          name: 'ee1',
+          annotations: {
+            'backstage.io/source-location':
+              'url:https://github.com/org/repo/tree/main/',
+          },
+        },
+        spec: { type: 'execution-environment' },
+      };
+      const result = resolveGithubRepoForEeBuild(entity);
+      expect(result.eeDir).toBeUndefined();
+      expect(result.eeFileName).toBeUndefined();
+    });
+
+    it('handles nested directory paths', () => {
+      const entity = {
+        apiVersion: 'backstage.io/v1alpha1',
+        kind: 'Component',
+        metadata: {
+          name: 'ee1',
+          annotations: {
+            'backstage.io/source-location':
+              'url:https://github.com/org/repo/blob/main/envs/prod/ee.yml',
+          },
+        },
+        spec: { type: 'execution-environment' },
+      };
+      const result = resolveGithubRepoForEeBuild(entity);
+      expect(result.eeDir).toBe('envs/prod');
+      expect(result.eeFileName).toBe('ee.yml');
     });
 
     it('throws when kind is not Component', () => {
@@ -1586,6 +1643,77 @@ describe('helpers', () => {
           spec: { type: 'execution-environment' },
         } as any),
       ).toThrow('GitHub');
+    });
+  });
+
+  describe('parseGitHubRepoFromSourceUrl', () => {
+    it('returns null for empty input', () => {
+      expect(parseGitHubRepoFromSourceUrl(undefined)).toBeNull();
+      expect(parseGitHubRepoFromSourceUrl('')).toBeNull();
+      expect(parseGitHubRepoFromSourceUrl('  ')).toBeNull();
+    });
+
+    it('parses blob URL with file path', () => {
+      const result = parseGitHubRepoFromSourceUrl(
+        'https://github.com/acme/repo/blob/main/ee1/ee.yml',
+      );
+      expect(result).toEqual({
+        host: 'github.com',
+        owner: 'acme',
+        repo: 'repo',
+        defaultRef: 'main',
+        filePath: 'ee1/ee.yml',
+      });
+    });
+
+    it('parses blob URL with nested directories', () => {
+      const result = parseGitHubRepoFromSourceUrl(
+        'https://github.com/org/repo/blob/develop/envs/prod/my-ee.yml',
+      );
+      expect(result).toEqual({
+        host: 'github.com',
+        owner: 'org',
+        repo: 'repo',
+        defaultRef: 'develop',
+        filePath: 'envs/prod/my-ee.yml',
+      });
+    });
+
+    it('omits filePath when no segments follow ref', () => {
+      const result = parseGitHubRepoFromSourceUrl(
+        'https://github.com/org/repo/tree/main/',
+      );
+      expect(result).toEqual({
+        host: 'github.com',
+        owner: 'org',
+        repo: 'repo',
+        defaultRef: 'main',
+      });
+      expect(result!.filePath).toBeUndefined();
+    });
+
+    it('parses owner/repo only URL with default ref', () => {
+      const result = parseGitHubRepoFromSourceUrl(
+        'https://github.com/org/repo',
+      );
+      expect(result).toEqual({
+        host: 'github.com',
+        owner: 'org',
+        repo: 'repo',
+        defaultRef: 'main',
+      });
+      expect(result!.filePath).toBeUndefined();
+    });
+
+    it('strips url: prefix', () => {
+      const result = parseGitHubRepoFromSourceUrl(
+        'url:https://github.com/org/repo/blob/main/dir/file.yml',
+      );
+      expect(result!.filePath).toBe('dir/file.yml');
+    });
+
+    it('returns null for non-http(s) protocol', () => {
+      expect(parseGitHubRepoFromSourceUrl('ftp://github.com/o/r')).toBeNull();
     });
   });
 
@@ -2077,15 +2205,50 @@ describe('helpers', () => {
       ).toThrow('Either entityRef or both owner and repo are required');
     });
 
-    it('throws when ee_dir is missing', () => {
+    it('allows ee_dir and ee_file_name to be omitted when entityRef is provided', () => {
+      const result = parseEeBuildRequestBody({
+        entityRef: 'component:default/x',
+        ee_registry: 'quay.io/org',
+        ee_image_name: 'img',
+      });
+      expect(result.entityRef).toBe('component:default/x');
+      expect(result.ee_dir).toBeUndefined();
+      expect(result.ee_file_name).toBeUndefined();
+    });
+
+    it('allows partial ee_dir without ee_file_name when entityRef is provided', () => {
+      const result = parseEeBuildRequestBody({
+        entityRef: 'component:default/x',
+        ee_dir: 'custom-dir',
+        ee_registry: 'quay.io/org',
+        ee_image_name: 'img',
+      });
+      expect(result.ee_dir).toBe('custom-dir');
+      expect(result.ee_file_name).toBeUndefined();
+    });
+
+    it('throws when ee_dir is missing with owner/repo (no entityRef)', () => {
       expect(() =>
         parseEeBuildRequestBody({
-          entityRef: 'component:default/x',
+          owner: 'acme',
+          repo: 'widgets',
           ee_file_name: 'ee.yml',
           ee_registry: 'quay.io/org',
           ee_image_name: 'img',
         }),
-      ).toThrow('ee_dir');
+      ).toThrow('ee_dir is required when entityRef is not provided');
+    });
+
+    it('throws when ee_file_name is missing with owner/repo (no entityRef)', () => {
+      expect(() =>
+        parseEeBuildRequestBody({
+          owner: 'acme',
+          repo: 'widgets',
+          ee_dir: 'ee1',
+          ee_registry: 'quay.io/org',
+          ee_image_name: 'img',
+        }),
+      ).toThrow('ee_file_name is required when entityRef is not provided');
     });
 
     it('accepts optional git_ref', () => {

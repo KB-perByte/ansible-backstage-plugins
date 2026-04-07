@@ -343,6 +343,8 @@ export async function createRouter(options: {
       }
 
       let gh: { host: string; owner: string; repo: string; ref: string };
+      let eeDir: string | undefined;
+      let eeFileName: string | undefined;
 
       if (parsedBody.entityRef) {
         const credentials = (
@@ -372,7 +374,13 @@ export async function createRouter(options: {
             return;
           }
 
-          gh = resolveGithubRepoForEeBuild(entity, parsedBody.git_ref);
+          const resolved = resolveGithubRepoForEeBuild(
+            entity,
+            parsedBody.git_ref,
+          );
+          gh = resolved;
+          eeDir = parsedBody.ee_dir ?? resolved.eeDir;
+          eeFileName = parsedBody.ee_file_name ?? resolved.eeFileName;
         } catch (error) {
           if (error instanceof ResponseError && error.response.status === 403) {
             response.status(403).json({
@@ -389,6 +397,16 @@ export async function createRouter(options: {
           repo: parsedBody.repo!,
           ref: parsedBody.git_ref || 'main',
         };
+        eeDir = parsedBody.ee_dir;
+        eeFileName = parsedBody.ee_file_name;
+      }
+
+      if (!eeDir || !eeFileName) {
+        response.status(400).json({
+          error:
+            'Could not determine ee_dir/ee_file_name from entity annotations. Provide them explicitly.',
+        });
+        return;
       }
 
       try {
@@ -428,8 +446,8 @@ export async function createRouter(options: {
           'ee-build.yml',
           gh.ref,
           {
-            ee_dir: parsedBody.ee_dir,
-            ee_file_name: parsedBody.ee_file_name,
+            ee_dir: eeDir,
+            ee_file_name: eeFileName,
             ee_registry: parsedBody.ee_registry,
             ee_image_name: parsedBody.ee_image_name,
           },

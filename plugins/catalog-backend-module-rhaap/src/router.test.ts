@@ -958,13 +958,13 @@ describe('createRouter', () => {
       return testApp;
     }
 
-    it('returns 400 when body is invalid', async () => {
+    it('returns 400 when body is missing required fields', async () => {
       const testApp = await createEeBuildTestApp();
       const response = await request(testApp)
         .post('/ansible/ee/build')
         .send({ entityRef: 'component:default/x' })
         .expect(400);
-      expect(response.body.error).toContain('ee_dir');
+      expect(response.body.error).toContain('ee_registry');
     });
 
     it('returns 401 when user credentials are missing', async () => {
@@ -1280,6 +1280,151 @@ describe('createRouter', () => {
         .expect(400);
 
       expect(response.body.error).toContain('entityRef');
+    });
+
+    it('derives ee_dir and ee_file_name from entity when not in payload', async () => {
+      mockHttpAuth.credentials.mockResolvedValue({} as any);
+      mockCatalogClient.getEntityByRef.mockResolvedValueOnce({
+        apiVersion: 'backstage.io/v1alpha1',
+        kind: 'Component',
+        metadata: {
+          name: 'my-ee',
+          annotations: {
+            'backstage.io/source-location':
+              'url:https://github.com/acme/widgets/blob/main/ee1/execution-environment.yml',
+          },
+        },
+        spec: { type: 'execution-environment' },
+      });
+
+      const mockFetch = jest
+        .spyOn(global, 'fetch')
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 204,
+          text: async () => '',
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ workflow_runs: [] }),
+        } as Response);
+
+      const testApp = await createEeBuildTestApp();
+      const response = await request(testApp)
+        .post('/ansible/ee/build')
+        .set('X-Github-Token', 'gh-pat-derived')
+        .send({
+          entityRef: 'component:default/my-ee',
+          ee_registry: 'quay.io/ansible',
+          ee_image_name: 'namespace/my-image',
+        })
+        .expect(202);
+
+      expect(response.body).toEqual({ message: 'Build started' });
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.github.com/repos/acme/widgets/actions/workflows/ee-build.yml/dispatches',
+        expect.objectContaining({
+          body: JSON.stringify({
+            ref: 'main',
+            inputs: {
+              ee_dir: 'ee1',
+              ee_file_name: 'execution-environment.yml',
+              ee_registry: 'quay.io/ansible',
+              ee_image_name: 'namespace/my-image',
+            },
+          }),
+        }),
+      );
+      mockFetch.mockRestore();
+    });
+
+    it('explicit ee_dir/ee_file_name override entity-derived values', async () => {
+      mockHttpAuth.credentials.mockResolvedValue({} as any);
+      mockCatalogClient.getEntityByRef.mockResolvedValueOnce({
+        apiVersion: 'backstage.io/v1alpha1',
+        kind: 'Component',
+        metadata: {
+          name: 'my-ee',
+          annotations: {
+            'backstage.io/source-location':
+              'url:https://github.com/acme/widgets/blob/main/ee1/execution-environment.yml',
+          },
+        },
+        spec: { type: 'execution-environment' },
+      });
+
+      const mockFetch = jest
+        .spyOn(global, 'fetch')
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 204,
+          text: async () => '',
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ workflow_runs: [] }),
+        } as Response);
+
+      const testApp = await createEeBuildTestApp();
+      const response = await request(testApp)
+        .post('/ansible/ee/build')
+        .set('X-Github-Token', 'gh-pat-override')
+        .send({
+          entityRef: 'component:default/my-ee',
+          ee_dir: 'custom-dir',
+          ee_file_name: 'custom.yml',
+          ee_registry: 'quay.io/ansible',
+          ee_image_name: 'namespace/my-image',
+        })
+        .expect(202);
+
+      expect(response.body).toEqual({ message: 'Build started' });
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining(
+          '/repos/acme/widgets/actions/workflows/ee-build.yml/dispatches',
+        ),
+        expect.objectContaining({
+          body: JSON.stringify({
+            ref: 'main',
+            inputs: {
+              ee_dir: 'custom-dir',
+              ee_file_name: 'custom.yml',
+              ee_registry: 'quay.io/ansible',
+              ee_image_name: 'namespace/my-image',
+            },
+          }),
+        }),
+      );
+      mockFetch.mockRestore();
+    });
+
+    it('returns 400 when entity has no file path and ee_dir/ee_file_name not provided', async () => {
+      mockHttpAuth.credentials.mockResolvedValue({} as any);
+      mockCatalogClient.getEntityByRef.mockResolvedValueOnce({
+        apiVersion: 'backstage.io/v1alpha1',
+        kind: 'Component',
+        metadata: {
+          name: 'my-ee',
+          annotations: {
+            'backstage.io/source-location':
+              'url:https://github.com/acme/widgets/tree/main/',
+          },
+        },
+        spec: { type: 'execution-environment' },
+      });
+
+      const testApp = await createEeBuildTestApp();
+      const response = await request(testApp)
+        .post('/ansible/ee/build')
+        .set('X-Github-Token', 'gh-pat-nopath')
+        .send({
+          entityRef: 'component:default/my-ee',
+          ee_registry: 'quay.io/ansible',
+          ee_image_name: 'namespace/my-image',
+        })
+        .expect(400);
+
+      expect(response.body.error).toContain('ee_dir/ee_file_name');
     });
   });
 

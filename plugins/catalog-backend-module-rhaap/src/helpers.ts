@@ -115,6 +115,8 @@ export interface ParsedGitHubRepoFromSource {
   repo: string;
   /** Branch or tag from the URL path (used as default workflow_dispatch ref). */
   defaultRef: string;
+  /** Remaining path segments after ref (e.g. "ee1/execution-environment.yml"). */
+  filePath?: string;
 }
 
 /**
@@ -136,11 +138,13 @@ export function parseGitHubRepoFromSourceUrl(
     const host = u.hostname;
     const parts = u.pathname.split('/').filter(Boolean);
     if (parts.length >= 4 && (parts[2] === 'blob' || parts[2] === 'tree')) {
+      const remaining = parts.slice(4).join('/');
       return {
         host,
         owner: parts[0]!,
         repo: parts[1]!,
         defaultRef: parts[3]!,
+        ...(remaining ? { filePath: remaining } : {}),
       };
     }
     if (parts.length === 2) {
@@ -162,8 +166,10 @@ export interface EeBuildRequestValidated {
   owner?: string;
   repo?: string;
   host?: string;
-  ee_dir: string;
-  ee_file_name: string;
+  /** Optional when entityRef is provided (derived from entity annotations). */
+  ee_dir?: string;
+  /** Optional when entityRef is provided (derived from entity annotations). */
+  ee_file_name?: string;
   ee_registry: string;
   ee_image_name: string;
   /** Git branch or tag for workflow_dispatch `ref` (optional). */
@@ -235,8 +241,6 @@ export function parseEeBuildRequestBody(
   }
 
   for (const [key, val] of [
-    ['ee_dir', ee_dir],
-    ['ee_file_name', ee_file_name],
     ['ee_registry', ee_registry],
     ['ee_image_name', ee_image_name],
   ] as const) {
@@ -245,13 +249,32 @@ export function parseEeBuildRequestBody(
     }
   }
 
-  const eeDirStr = (ee_dir as string).trim();
-  const eeFileStr = (ee_file_name as string).trim();
   const registryStr = (ee_registry as string).trim();
   const imageStr = (ee_image_name as string).trim();
 
-  assertSafeRepoRelativeEeDir(eeDirStr);
-  assertSafeEeFileName(eeFileStr);
+  // ee_dir and ee_file_name are required when entityRef is absent (no entity to derive from)
+  if (!hasEntityRef) {
+    for (const [key, val] of [
+      ['ee_dir', ee_dir],
+      ['ee_file_name', ee_file_name],
+    ] as const) {
+      if (typeof val !== 'string' || !val.trim()) {
+        throw new Error(`${key} is required when entityRef is not provided`);
+      }
+    }
+  }
+
+  let eeDirStr: string | undefined;
+  let eeFileStr: string | undefined;
+  if (typeof ee_dir === 'string' && ee_dir.trim()) {
+    eeDirStr = ee_dir.trim();
+    assertSafeRepoRelativeEeDir(eeDirStr);
+  }
+  if (typeof ee_file_name === 'string' && ee_file_name.trim()) {
+    eeFileStr = ee_file_name.trim();
+    assertSafeEeFileName(eeFileStr);
+  }
+
   for (const [val, field] of [
     [registryStr, 'ee_registry'],
     [imageStr, 'ee_image_name'],
@@ -285,8 +308,8 @@ export function parseEeBuildRequestBody(
             : {}),
         }
       : {}),
-    ee_dir: eeDirStr,
-    ee_file_name: eeFileStr,
+    ...(eeDirStr ? { ee_dir: eeDirStr } : {}),
+    ...(eeFileStr ? { ee_file_name: eeFileStr } : {}),
     ee_registry: registryStr,
     ee_image_name: imageStr,
     ...(gitRefOut ? { git_ref: gitRefOut } : {}),
@@ -299,6 +322,10 @@ export interface EeGithubDispatchContext {
   owner: string;
   repo: string;
   ref: string;
+  /** Directory containing the EE definition, derived from the annotation file path. */
+  eeDir?: string;
+  /** EE definition file name, derived from the annotation file path. */
+  eeFileName?: string;
 }
 
 /**
@@ -337,11 +364,27 @@ export function resolveGithubRepoForEeBuild(
       'Execution Environment source URL is not a GitHub repository URL; EE build workflow is GitHub-only',
     );
   }
+
+  let eeDir: string | undefined;
+  let eeFileName: string | undefined;
+  if (parsed.filePath) {
+    const lastSlash = parsed.filePath.lastIndexOf('/');
+    if (lastSlash >= 0) {
+      eeDir = parsed.filePath.substring(0, lastSlash);
+      eeFileName = parsed.filePath.substring(lastSlash + 1);
+    } else {
+      eeDir = '.';
+      eeFileName = parsed.filePath;
+    }
+  }
+
   return {
     host: parsed.host,
     owner: parsed.owner,
     repo: parsed.repo,
     ref: (gitRefOverride ?? parsed.defaultRef).trim(),
+    ...(eeDir ? { eeDir } : {}),
+    ...(eeFileName ? { eeFileName } : {}),
   };
 }
 
