@@ -447,9 +447,6 @@ export async function createRouter(options: {
             ee_image_name: parsedBody.imageName,
             image_build_tag: parsedBody.imageTag,
             registry_tls_verify: String(parsedBody.verifyTls),
-            ...(parsedBody.registryType
-              ? { registryType: parsedBody.registryType }
-              : {}),
           },
         );
 
