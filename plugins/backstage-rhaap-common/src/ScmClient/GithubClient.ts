@@ -488,4 +488,38 @@ export class GithubClient extends BaseScmClient {
       bodyText,
     };
   }
+
+  /**
+   * Best-effort single fetch for the most recent workflow run created in the
+   * last 30 seconds. Returns `undefined` when no matching run is found.
+   */
+  async findRecentWorkflowRun(
+    owner: string,
+    repo: string,
+    workflowFileName: string,
+  ): Promise<{ id: number; html_url: string; status: string } | undefined> {
+    const path = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(
+      repo,
+    )}/actions/workflows/${encodeURIComponent(workflowFileName)}/runs?per_page=1`;
+    const url = `${this.apiUrl}${path}`;
+
+    try {
+      const res = await this.doFetch(url, {
+        method: 'GET',
+        headers: { Accept: 'application/vnd.github+json' },
+      });
+      if (!res.ok) return undefined;
+
+      const data = await res.json();
+      const run = data?.workflow_runs?.[0];
+      if (!run) return undefined;
+
+      const createdAt = new Date(run.created_at).getTime();
+      if (Date.now() - createdAt > 30_000) return undefined;
+
+      return { id: run.id, html_url: run.html_url, status: run.status };
+    } catch {
+      return undefined;
+    }
+  }
 }

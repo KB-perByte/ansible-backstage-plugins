@@ -51,6 +51,7 @@ import {
   resolveProvidersToRun,
   createRequireSuperuserMiddleware,
   createRequireUserOrExternalAccessMiddleware,
+  createPermissionCheckMiddleware,
   EE_BUILD_CATALOG_CREDENTIALS_LOCALS_KEY,
   handleGitHubCIActivity,
   handleGitLabCIActivity,
@@ -318,7 +319,19 @@ export async function createRouter(options: {
     '/ansible/ee/build',
     express.json(),
     requireUserOrExternalAccessForEeBuild,
+    createPermissionCheckMiddleware({ httpAuth, permissions }, [
+      executionEnvironmentsViewPermission,
+      catalogEntityReadPermission,
+    ]),
     async (request, response) => {
+      const perms = response.locals.permissions as Record<string, boolean>;
+      if (!Object.values(perms).every(Boolean)) {
+        response
+          .status(403)
+          .json({ error: 'Forbidden: insufficient permissions' });
+        return;
+      }
+
       let parsedBody;
       try {
         parsedBody = parseEeBuildRequestBody(request.body);
@@ -373,17 +386,12 @@ export async function createRouter(options: {
           return;
         }
 
-        const { token: tokenFromConfig, apiBaseUrl } =
-          getGitHubIntegrationForHost(config, gh.host);
-        const tokenFromHeader = request.headers.authorization?.replace(
-          /^Bearer\s+/i,
-          '',
-        );
-        const githubToken = tokenFromConfig || tokenFromHeader;
+        const { apiBaseUrl } = getGitHubIntegrationForHost(config, gh.host);
+        const githubToken = request.headers['x-github-token'] as string;
         if (!githubToken) {
           response.status(400).json({
             error:
-              'No GitHub token available to dispatch the workflow. Configure integrations.github token or send Authorization: Bearer <GitHub PAT> with workflow scope.',
+              'No GitHub token available to dispatch the workflow. Send X-Github-Token header.',
           });
           return;
         }
@@ -425,7 +433,20 @@ export async function createRouter(options: {
         logger.info(
           `[ansible/ee/build] Dispatched ee-build.yml for ${gh.owner}/${gh.repo}@${gh.ref}`,
         );
-        response.status(204).send();
+
+        const run = await githubClient.findRecentWorkflowRun(
+          gh.owner,
+          gh.repo,
+          'ee-build.yml',
+        );
+
+        response.status(202).json({
+          message: 'Build started',
+          ...(run && {
+            workflow_id: run.id,
+            workflow_url: run.html_url,
+          }),
+        });
       } catch (error) {
         if (error instanceof ResponseError && error.response.status === 403) {
           response.status(403).json({

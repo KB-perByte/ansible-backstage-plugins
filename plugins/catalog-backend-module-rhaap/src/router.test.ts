@@ -950,6 +950,7 @@ describe('createRouter', () => {
           userInfo: mockUserInfo,
           auth: mockAuth,
           catalogClient: mockCatalogClient,
+          permissions: mockPermissions,
           ansibleGitContentsProviders: [],
           allowedExternalAccessSubjects: options.allowedExternalAccessSubjects,
         }),
@@ -1002,12 +1003,13 @@ describe('createRouter', () => {
       const testApp = await createEeBuildTestApp();
       const response = await request(testApp)
         .post('/ansible/ee/build')
+        .set('X-Github-Token', 'gh-pat-token')
         .send(validBuildBody)
         .expect(404);
       expect(response.body.error).toMatch(/not found|not visible/i);
     });
 
-    it('returns 204 and dispatches workflow_dispatch with required inputs', async () => {
+    it('returns 202 and dispatches workflow_dispatch with required inputs', async () => {
       mockHttpAuth.credentials.mockResolvedValue({} as any);
       mockCatalogClient.getEntityByRef.mockResolvedValueOnce({
         apiVersion: 'backstage.io/v1alpha1',
@@ -1022,25 +1024,46 @@ describe('createRouter', () => {
         spec: { type: 'execution-environment' },
       });
 
-      const mockFetch = jest.spyOn(global, 'fetch').mockResolvedValue({
-        ok: true,
-        status: 204,
-        text: async () => '',
-      } as Response);
+      const mockFetch = jest
+        .spyOn(global, 'fetch')
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 204,
+          text: async () => '',
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            workflow_runs: [
+              {
+                id: 99001,
+                html_url: 'https://github.com/acme/widgets/actions/runs/99001',
+                status: 'queued',
+                created_at: new Date().toISOString(),
+              },
+            ],
+          }),
+        } as Response);
 
       const testApp = await createEeBuildTestApp();
       const response = await request(testApp)
         .post('/ansible/ee/build')
+        .set('X-Github-Token', 'gh-pat-token')
         .send(validBuildBody)
-        .expect(204);
+        .expect(202);
 
-      expect(response.body).toEqual({});
+      expect(response.body).toEqual({
+        message: 'Build started',
+        workflow_id: 99001,
+        workflow_url: 'https://github.com/acme/widgets/actions/runs/99001',
+      });
       expect(mockFetch).toHaveBeenCalledWith(
         'https://api.github.com/repos/acme/widgets/actions/workflows/ee-build.yml/dispatches',
         expect.objectContaining({
           method: 'POST',
           headers: expect.objectContaining({
-            Authorization: 'Bearer test-token',
+            Authorization: 'Bearer gh-pat-token',
             'Content-Type': 'application/json',
           }),
           body: JSON.stringify({
@@ -1057,7 +1080,7 @@ describe('createRouter', () => {
       mockFetch.mockRestore();
     });
 
-    it('returns 204 for allowlisted service principal (external access)', async () => {
+    it('returns 202 for allowlisted service principal (external access)', async () => {
       const serviceCreds = {
         principal: { type: 'service', subject: 'allowed-ci' },
       };
@@ -1080,20 +1103,29 @@ describe('createRouter', () => {
         spec: { type: 'execution-environment' },
       });
 
-      const mockFetch = jest.spyOn(global, 'fetch').mockResolvedValue({
-        ok: true,
-        status: 204,
-        text: async () => '',
-      } as Response);
+      const mockFetch = jest
+        .spyOn(global, 'fetch')
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 204,
+          text: async () => '',
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 404,
+          json: async () => ({}),
+        } as Response);
 
       const testApp = await createEeBuildTestApp({
         allowedExternalAccessSubjects: ['allowed-ci'],
       });
-      await request(testApp)
+      const response = await request(testApp)
         .post('/ansible/ee/build')
+        .set('X-Github-Token', 'gh-pat-token')
         .send(validBuildBody)
-        .expect(204);
+        .expect(202);
 
+      expect(response.body).toEqual({ message: 'Build started' });
       expect(mockFetch).toHaveBeenCalled();
       mockFetch.mockRestore();
     });

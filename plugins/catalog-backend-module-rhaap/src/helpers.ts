@@ -1,16 +1,23 @@
-import type { Request, Response, RequestHandler } from 'express';
+import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import type {
   BackstageCredentials,
   LoggerService,
   HttpAuthService,
   UserInfoService,
   AuthService,
+  PermissionsService,
 } from '@backstage/backend-plugin-api';
 import type { CatalogClient } from '@backstage/catalog-client';
 import type { Entity } from '@backstage/catalog-model';
 import { ANNOTATION_EDIT_URL } from '@backstage/catalog-model';
 import type { Config } from '@backstage/config';
 import type { JsonValue } from '@backstage/types';
+import type {
+  BasicPermission,
+  Permission,
+  ResourcePermission,
+} from '@backstage/plugin-permission-common';
+import { AuthorizeResult } from '@backstage/plugin-permission-common';
 import type {
   DefaultGithubCredentialsProvider,
   ScmIntegrationRegistry,
@@ -919,4 +926,88 @@ export async function handleGitLabCIActivity(
     );
     response.status(502).json({ error: 'Failed to fetch GitLab pipelines' });
   }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Permission-check middleware factory                                */
+/* ------------------------------------------------------------------ */
+
+export interface PermissionMiddlewareDeps {
+  httpAuth: HttpAuthService;
+  permissions: PermissionsService;
+}
+
+/**
+ * Creates an Express middleware that resolves credentials and evaluates a
+ * mixed list of basic and resource permissions.
+ *
+ * Basic permissions (`type: 'basic'`) are checked via `authorize`; the result
+ * is `true` when `AuthorizeResult.ALLOW`.
+ *
+ * Resource permissions (`type: 'resource'`) are checked via
+ * `authorizeConditional`; the result is `true` when the decision is **not**
+ * `AuthorizeResult.DENY` (i.e. ALLOW or CONDITIONAL).
+ *
+ * On success the following are attached to `response.locals`:
+ *  - `credentials`  – the resolved {@link BackstageCredentials}
+ *  - `permissions`  – a `Record<string, boolean>` keyed by permission name
+ *
+ * The middleware does **not** enforce any policy; it is the caller's
+ * responsibility to inspect the map and return 403 when appropriate.
+ *
+ * @param deps - httpAuth and permissions services
+ * @param permissionsToCheck - basic and/or resource permissions to evaluate
+ */
+export function createPermissionCheckMiddleware(
+  deps: PermissionMiddlewareDeps,
+  permissionsToCheck: Permission[],
+): RequestHandler {
+  const { httpAuth, permissions } = deps;
+
+  const basicPerms = permissionsToCheck.filter(
+    (p): p is BasicPermission => p.type === 'basic',
+  );
+  const resourcePerms = permissionsToCheck.filter(
+    (p): p is ResourcePermission => p.type === 'resource',
+  );
+
+  return async (
+    request: Request,
+    response: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      const credentials = await httpAuth.credentials(request as any);
+
+      const [basicDecisions, conditionalDecisions] = await Promise.all([
+        basicPerms.length
+          ? permissions.authorize(
+              basicPerms.map(permission => ({ permission })),
+              { credentials },
+            )
+          : Promise.resolve([]),
+        resourcePerms.length
+          ? permissions.authorizeConditional(
+              resourcePerms.map(permission => ({ permission })),
+              { credentials },
+            )
+          : Promise.resolve([]),
+      ]);
+
+      const results: Record<string, boolean> = {};
+      basicPerms.forEach((perm, i) => {
+        results[perm.name] = basicDecisions[i].result === AuthorizeResult.ALLOW;
+      });
+      resourcePerms.forEach((perm, i) => {
+        results[perm.name] =
+          conditionalDecisions[i].result !== AuthorizeResult.DENY;
+      });
+
+      response.locals.credentials = credentials;
+      response.locals.permissions = results;
+      next();
+    } catch (err) {
+      next(err);
+    }
+  };
 }
