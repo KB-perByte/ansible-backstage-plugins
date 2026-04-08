@@ -19,10 +19,12 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
 
   // Timeouts (configurable via environment variables for CI)
+  // Recommended CI values: PLAYWRIGHT_TEST_TIMEOUT=90000 (90s)
   timeout: process.env.PLAYWRIGHT_TEST_TIMEOUT
     ? parseInt(process.env.PLAYWRIGHT_TEST_TIMEOUT)
     : 60 * 1000, // Default: 60s per test
   expect: {
+    // Recommended CI value: PLAYWRIGHT_EXPECT_TIMEOUT=15000 (15s)
     timeout: process.env.PLAYWRIGHT_EXPECT_TIMEOUT
       ? parseInt(process.env.PLAYWRIGHT_EXPECT_TIMEOUT)
       : 10000, // Default: 10s for assertions
@@ -49,11 +51,13 @@ export default defineConfig({
     viewport: { width: 1920, height: 1080 },
 
     // Action timeout (default for click, fill, etc.) - configurable for CI
+    // Recommended CI value: PLAYWRIGHT_ACTION_TIMEOUT=20000 (20s)
     actionTimeout: process.env.PLAYWRIGHT_ACTION_TIMEOUT
       ? parseInt(process.env.PLAYWRIGHT_ACTION_TIMEOUT)
       : 10000,
 
     // Navigation timeout - configurable for CI
+    // Recommended CI value: PLAYWRIGHT_NAVIGATION_TIMEOUT=30000 (30s)
     navigationTimeout: process.env.PLAYWRIGHT_NAVIGATION_TIMEOUT
       ? parseInt(process.env.PLAYWRIGHT_NAVIGATION_TIMEOUT)
       : 30000,
