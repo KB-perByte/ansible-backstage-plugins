@@ -57,10 +57,12 @@ Before setting up the development environment, ensure you have:
 ### Required Software
 
 - **Node.js**: Version **20** or **22** (LTS versions)
+
   - Check version: `node --version`
   - Install via [nvm](https://github.com/nvm-sh/nvm) or from [nodejs.org](https://nodejs.org/)
 
 - **Yarn**: Version **4.9.2** (managed via Corepack)
+
   - Corepack is included with Node.js 16.10+
   - Enable Corepack: `corepack enable`
   - Verify: `yarn --version`
@@ -77,6 +79,7 @@ Before setting up the development environment, ensure you have:
 ### Optional But Recommended
 
 - **Ansible Automation Platform**: Access to an AAP instance for full functionality
+
   - Version 2.4 or later recommended
   - API access token with appropriate permissions
 
@@ -137,20 +140,20 @@ cp .env.example .env
 
 Edit `.env` and fill in the required values:
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `BACKEND_SECRET` | No | Auto-generated on each `yarn start` if left empty |
-| `AUTH_SIGNING_KEY` | No | Auto-generated on each `yarn start` if left empty |
-| `GITHUB_INTEGRATION_TOKEN` | Yes | GitHub PAT for SCM integration ([create here](https://github.com/settings/tokens)) |
-| `GITLAB_INTEGRATION_TOKEN` | If using GitLab | GitLab PAT for SCM integration |
-| `AUTH_GITHUB_CLIENT_ID` | If using GitHub auth | GitHub OAuth App client ID ([create here](https://github.com/settings/developers)) |
-| `AUTH_GITHUB_CLIENT_SECRET` | If using GitHub auth | GitHub OAuth App client secret |
-| `AUTH_GITLAB_CLIENT_ID` | If using GitLab auth | GitLab OAuth App client ID |
-| `AUTH_GITLAB_CLIENT_SECRET` | If using GitLab auth | GitLab OAuth App client secret |
-| `AAP_HOST` | Yes | AAP controller URL (e.g. `https://aap.example.com`) |
-| `AAP_AUTH_CLIENT_ID` | Yes | AAP OAuth client ID |
-| `AAP_AUTH_CLIENT_SECRET` | Yes | AAP OAuth client secret |
-| `AAP_API_TOKEN` | Yes | AAP API token for catalog sync |
+| Variable                    | Required             | Description                                                                        |
+| --------------------------- | -------------------- | ---------------------------------------------------------------------------------- |
+| `BACKEND_SECRET`            | No                   | Auto-generated on each `yarn start` if left empty                                  |
+| `AUTH_SIGNING_KEY`          | No                   | Auto-generated on each `yarn start` if left empty                                  |
+| `GITHUB_INTEGRATION_TOKEN`  | Yes                  | GitHub PAT for SCM integration ([create here](https://github.com/settings/tokens)) |
+| `GITLAB_INTEGRATION_TOKEN`  | If using GitLab      | GitLab PAT for SCM integration                                                     |
+| `AUTH_GITHUB_CLIENT_ID`     | If using GitHub auth | GitHub OAuth App client ID ([create here](https://github.com/settings/developers)) |
+| `AUTH_GITHUB_CLIENT_SECRET` | If using GitHub auth | GitHub OAuth App client secret                                                     |
+| `AUTH_GITLAB_CLIENT_ID`     | If using GitLab auth | GitLab OAuth App client ID                                                         |
+| `AUTH_GITLAB_CLIENT_SECRET` | If using GitLab auth | GitLab OAuth App client secret                                                     |
+| `AAP_HOST`                  | Yes                  | AAP controller URL (e.g. `https://aap.example.com`)                                |
+| `AAP_AUTH_CLIENT_ID`        | Yes                  | AAP OAuth client ID                                                                |
+| `AAP_AUTH_CLIENT_SECRET`    | Yes                  | AAP OAuth client secret                                                            |
+| `AAP_API_TOKEN`             | Yes                  | AAP API token for catalog sync                                                     |
 
 **Note:** `BACKEND_SECRET` and `AUTH_SIGNING_KEY` are auto-generated if left empty. Set them explicitly if you need persistent sessions across restarts.
 
