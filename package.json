@@ -9,7 +9,7 @@
   "author": "Red Hat <ansible-devtools@redhat.com>",
   "scripts": {
     "prepare": "husky install",
-    "start": "dotenv -- bash -c 'NODE_OPTIONS=\"${NODE_OPTIONS:-} --no-node-snapshot\" backstage-cli repo start'",
+    "start": "dotenv -- bash scripts/start.sh",
     "build:backend": "yarn workspace backend build",
     "build:all": "backstage-cli repo build --all",
     "build": "tsc && backstage-cli repo build",

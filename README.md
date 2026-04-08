@@ -129,13 +129,30 @@ yarn workspaces list
 
 #### 1. Create Environment File
 
-All secrets are managed via a `.env` file that is loaded automatically by `yarn start`.
+All secrets are managed via a `.env` file. It is loaded automatically by `yarn start` via `dotenv-cli`.
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` and fill in your values. See `.env.example` for the full list of variables and links to where you can generate each token.
+Edit `.env` and fill in the required values:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `BACKEND_SECRET` | No | Auto-generated on each `yarn start` if left empty |
+| `AUTH_SIGNING_KEY` | No | Auto-generated on each `yarn start` if left empty |
+| `GITHUB_INTEGRATION_TOKEN` | Yes | GitHub PAT for SCM integration ([create here](https://github.com/settings/tokens)) |
+| `GITLAB_INTEGRATION_TOKEN` | If using GitLab | GitLab PAT for SCM integration |
+| `AUTH_GITHUB_CLIENT_ID` | If using GitHub auth | GitHub OAuth App client ID ([create here](https://github.com/settings/developers)) |
+| `AUTH_GITHUB_CLIENT_SECRET` | If using GitHub auth | GitHub OAuth App client secret |
+| `AUTH_GITLAB_CLIENT_ID` | If using GitLab auth | GitLab OAuth App client ID |
+| `AUTH_GITLAB_CLIENT_SECRET` | If using GitLab auth | GitLab OAuth App client secret |
+| `AAP_HOST` | Yes | AAP controller URL (e.g. `https://aap.example.com`) |
+| `AAP_AUTH_CLIENT_ID` | Yes | AAP OAuth client ID |
+| `AAP_AUTH_CLIENT_SECRET` | Yes | AAP OAuth client secret |
+| `AAP_API_TOKEN` | Yes | AAP API token for catalog sync |
+
+**Note:** `BACKEND_SECRET` and `AUTH_SIGNING_KEY` are auto-generated if left empty. Set them explicitly if you need persistent sessions across restarts.
 
 #### 2. Create Local Configuration File (Optional)
 
@@ -147,26 +164,11 @@ cp app-config.yaml app-config.local.yaml
 
 Edit `app-config.local.yaml` to customize settings for your local environment. This file is gitignored.
 
-#### 3. Additional Configuration Options
-
-<details>
-<summary><b>Authentication Providers</b></summary>
-
-```yaml
-auth:
-  environment: development # Set to 'production' for production
-  providers:
-    github:
-      development:
-        clientId: ${AUTH_GITHUB_CLIENT_ID}
-        clientSecret: ${AUTH_GITHUB_CLIENT_SECRET}
-```
-
-</details>
-
 ### Running Locally
 
 #### Start the Development Server
+
+Make sure you have created a `.env` file (see [Configuration](#configuration) above), then:
 
 ```bash
 yarn start
@@ -174,6 +176,8 @@ yarn start
 
 This will:
 
+- Load environment variables from `.env` via `dotenv-cli`
+- Auto-generate `BACKEND_SECRET` and `AUTH_SIGNING_KEY` if not set
 - Start the backend on `http://localhost:7007`
 - Start the frontend on `http://localhost:3000`
 - Enable hot module reloading for development
