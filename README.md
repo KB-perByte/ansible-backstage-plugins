@@ -57,12 +57,10 @@ Before setting up the development environment, ensure you have:
 ### Required Software
 
 - **Node.js**: Version **20** or **22** (LTS versions)
-
   - Check version: `node --version`
   - Install via [nvm](https://github.com/nvm-sh/nvm) or from [nodejs.org](https://nodejs.org/)
 
 - **Yarn**: Version **4.9.2** (managed via Corepack)
-
   - Corepack is included with Node.js 16.10+
   - Enable Corepack: `corepack enable`
   - Verify: `yarn --version`
@@ -79,7 +77,6 @@ Before setting up the development environment, ensure you have:
 ### Optional But Recommended
 
 - **Ansible Automation Platform**: Access to an AAP instance for full functionality
-
   - Version 2.4 or later recommended
   - API access token with appropriate permissions
 
