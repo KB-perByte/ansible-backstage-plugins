@@ -127,78 +127,27 @@ yarn workspaces list
 
 ### Configuration
 
-#### 1. Create Local Configuration File
+#### 1. Create Environment File
 
-For local development, create a local configuration file that won't be committed:
+All secrets are managed via a `.env` file that is loaded automatically by `yarn start`.
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and fill in your values. See `.env.example` for the full list of variables and links to where you can generate each token.
+
+#### 2. Create Local Configuration File (Optional)
+
+For local overrides (non-secret settings like schedule intervals, enabled features, etc.):
 
 ```bash
 cp app-config.yaml app-config.local.yaml
 ```
 
-#### 2. Configure Required Settings
+Edit `app-config.local.yaml` to customize settings for your local environment. This file is gitignored.
 
-Edit `app-config.local.yaml` and update the following fields marked as `changeme`:
-
-##### Backend Secret (Required)
-
-```yaml
-backend:
-  auth:
-    keys:
-      # Generate a secret with: openssl rand -base64 32
-      - secret: YOUR_SECRET_HERE
-```
-
-##### GitHub Integration (Required)
-
-```yaml
-integrations:
-  github:
-    - host: github.com
-      # Create a token at: https://github.com/settings/tokens
-      # Required scopes: repo (for private repos) or public_repo (for public only)
-      token: ${GITHUB_TOKEN} # Or paste token directly
-```
-
-##### AAP Integration (Optional but Recommended)
-
-```yaml
-aap:
-  # Your Ansible Automation Platform instance URL
-  baseUrl: https://your-aap-instance.example.com
-
-  # AAP API token
-  # Create at: AAP UI → Users → Tokens → Add
-  token: ${AAP_TOKEN} # Or paste token directly
-
-  # SSL verification (set to true in production)
-  checkSSL: false
-```
-
-#### 3. Set Environment Variables (Alternative)
-
-Instead of editing the config file, you can set environment variables:
-
-```bash
-# Create a .env file (this file is gitignored)
-cat > .env << EOF
-# Backend
-BACKEND_SECRET=$(openssl rand -base64 32)
-
-# GitHub Integration
-GITHUB_TOKEN=ghp_your_token_here
-
-# AAP Integration
-AAP_BASE_URL=https://your-aap-instance.example.com
-AAP_TOKEN=your-aap-token-here
-AAP_CHECK_SSL=false
-
-# Auth (for production)
-AUTH_SIGNING_KEY=$(openssl rand -base64 32)
-EOF
-```
-
-#### 4. Additional Configuration Options
+#### 3. Additional Configuration Options
 
 <details>
 <summary><b>Authentication Providers</b></summary>
