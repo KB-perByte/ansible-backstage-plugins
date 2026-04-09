@@ -16,8 +16,10 @@ export default defineConfig({
   workers: 1, // Single worker to share browser context across all tests
 
   // Retry configuration
-  // Disabled in CI for faster execution (rely on aggressive timeouts instead)
-  retries: 0,
+  retries: process.env.CI ? 1 : 0,
+
+  // Global timeout prevents runaway CI builds
+  globalTimeout: process.env.CI ? 10 * 60 * 1000 : undefined, // 10 min total on CI
 
   // Timeouts (configurable via environment variables for CI)
   // Recommended CI values: PLAYWRIGHT_TEST_TIMEOUT=90000 (90s)
@@ -71,7 +73,10 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: {
+        ...devices['Desktop Chrome'],
+        channel: 'chrome', // Use system-installed Chrome, skip Playwright Chromium download
+      },
     },
   ],
 
