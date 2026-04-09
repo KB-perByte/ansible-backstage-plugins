@@ -44,6 +44,11 @@ import {
   isEntityPublishedToGithub,
 } from './helpers';
 import { useEEBuildFlow } from './useEEBuildFlow';
+import {
+  fetchGitFileContentFromBackend,
+  ScmIntegrationAuthError,
+  type FetchGitFileOutcome,
+} from '../../common';
 import { parseEEDefinition } from '../../../utils/eeDefinitionUtils';
 import { rootRouteRef } from '../../../routes';
 
@@ -100,6 +105,43 @@ const usePageStyles = makeStyles(theme => ({
   },
 }));
 
+/** Merge parallel readme + EE definition fetch outcomes; auth error if either is integration_auth. */
+function applyParallelGitFileOutcomes(
+  readmeOutcome: FetchGitFileOutcome | null,
+  defOutcome: FetchGitFileOutcome | null,
+  setters: {
+    setDefaultReadme: (v: string) => void;
+    setFetchedDefinition: (v: string | null) => void;
+    setScmIntegrationAuthError: (v: boolean) => void;
+  },
+): void {
+  let integrationAuth = false;
+
+  if (readmeOutcome !== null) {
+    if (readmeOutcome.ok) {
+      setters.setDefaultReadme(readmeOutcome.data);
+    } else {
+      setters.setDefaultReadme('');
+      if (readmeOutcome.reason === 'integration_auth') {
+        integrationAuth = true;
+      }
+    }
+  }
+
+  if (defOutcome !== null) {
+    if (defOutcome.ok) {
+      setters.setFetchedDefinition(defOutcome.data);
+    } else {
+      setters.setFetchedDefinition(null);
+      if (defOutcome.reason === 'integration_auth') {
+        integrationAuth = true;
+      }
+    }
+  }
+
+  setters.setScmIntegrationAuthError(integrationAuth);
+}
+
 export const EEDetailsPage: React.FC = () => {
   const actionsMenuClasses = useActionsMenuStyles();
   const pageClasses = usePageStyles();
@@ -131,6 +173,7 @@ export const EEDetailsPage: React.FC = () => {
   const fetchApi = useApi(fetchApiRef);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [ownerName, setOwnerName] = useState<string | null>(null);
+  const [scmIntegrationAuthError, setScmIntegrationAuthError] = useState(false);
 
   const getOwnerName = useCallback(async () => {
     if (!entity?.spec?.owner) return 'Unknown';
@@ -175,6 +218,10 @@ export const EEDetailsPage: React.FC = () => {
   useEffect(() => {
     callApi();
   }, [callApi, isRefreshing]);
+
+  useEffect(() => {
+    setScmIntegrationAuthError(false);
+  }, [templateName]);
 
   const parseSourceLocationParams = useCallback((): {
     scmProvider: string;
@@ -232,70 +279,67 @@ export const EEDetailsPage: React.FC = () => {
     return { scmProvider, host, owner, repo, subdir, filePath, ref };
   }, [entity]);
 
+  /** Single effect so parallel readme + definition fetches cannot clobber scmIntegrationAuthError. */
   useEffect(() => {
-    const fetchDefaultReadme = async () => {
-      if (!entity?.spec?.readme) {
-        const params = parseSourceLocationParams();
-        if (!params) return;
+    let cancelled = false;
 
-        const baseUrl = await discoveryApi.getBaseUrl('catalog');
-        const queryParams = new URLSearchParams({
-          scmProvider: params.scmProvider,
-          host: params.host,
-          owner: params.owner,
-          repo: params.repo,
-          filePath: params.filePath,
-          ref: params.ref,
-        });
+    const catchAsOther = (): FetchGitFileOutcome => ({
+      ok: false,
+      reason: 'other',
+    });
 
-        try {
-          const response = await fetchApi.fetch(
-            `${baseUrl}/ansible/git/file-content?${queryParams}`,
-          );
-          if (response.ok) {
-            const text = await response.text();
-            setDefaultReadme(text);
-          }
-        } catch {
-          // Silently ignore errors
-        }
-      }
+    const run = async () => {
+      const params = parseSourceLocationParams();
+      if (!params) return;
+
+      const needReadme = !entity?.spec?.readme;
+      const needDefinition = !!entity && !entity?.spec?.definition;
+      if (!needReadme && !needDefinition) return;
+
+      const readmePromise: Promise<FetchGitFileOutcome | null> = needReadme
+        ? fetchGitFileContentFromBackend(discoveryApi, fetchApi, {
+            scmProvider: params.scmProvider,
+            scmHost: params.host,
+            scmOrg: params.owner,
+            scmRepo: params.repo,
+            filePath: params.filePath,
+            gitRef: params.ref,
+          }).catch(catchAsOther)
+        : Promise.resolve(null);
+
+      const definitionFilePath = params.subdir
+        ? `${params.subdir}/${entity?.metadata?.name ?? 'execution-environment'}.yml`
+        : `${entity?.metadata?.name ?? 'execution-environment'}.yml`;
+
+      const defPromise: Promise<FetchGitFileOutcome | null> = needDefinition
+        ? fetchGitFileContentFromBackend(discoveryApi, fetchApi, {
+            scmProvider: params.scmProvider,
+            scmHost: params.host,
+            scmOrg: params.owner,
+            scmRepo: params.repo,
+            filePath: definitionFilePath,
+            gitRef: params.ref,
+          }).catch(catchAsOther)
+        : Promise.resolve(null);
+
+      const [readmeOutcome, defOutcome] = await Promise.all([
+        readmePromise,
+        defPromise,
+      ]);
+
+      if (cancelled) return;
+
+      applyParallelGitFileOutcomes(readmeOutcome, defOutcome, {
+        setDefaultReadme,
+        setFetchedDefinition,
+        setScmIntegrationAuthError,
+      });
     };
-    fetchDefaultReadme();
-  }, [entity, discoveryApi, parseSourceLocationParams, fetchApi]);
 
-  useEffect(() => {
-    const fetchEEDefinition = async () => {
-      if (entity && !entity?.spec?.definition) {
-        const params = parseSourceLocationParams();
-        if (!params) return;
-
-        const baseUrl = await discoveryApi.getBaseUrl('catalog');
-        const queryParams = new URLSearchParams({
-          scmProvider: params.scmProvider,
-          host: params.host,
-          owner: params.owner,
-          repo: params.repo,
-          filePath: params.subdir
-            ? `${params.subdir}/${entity?.metadata?.name ?? 'execution-environment'}.yml`
-            : `${entity?.metadata?.name ?? 'execution-environment'}.yml`,
-          ref: params.ref,
-        });
-
-        try {
-          const response = await fetchApi.fetch(
-            `${baseUrl}/ansible/git/file-content?${queryParams}`,
-          );
-          if (response.ok) {
-            const text = await response.text();
-            setFetchedDefinition(text);
-          }
-        } catch {
-          // Silently ignore errors
-        }
-      }
+    void run();
+    return () => {
+      cancelled = true;
     };
-    fetchEEDefinition();
   }, [entity, discoveryApi, parseSourceLocationParams, fetchApi]);
 
   useEffect(() => {
@@ -410,143 +454,149 @@ export const EEDetailsPage: React.FC = () => {
         onNavigateToCatalog={handleNavigateToCatalog}
       />
 
-      {/* Header */}
-      <Box className={pageClasses.header}>
-        <Header
-          templateName={templateName?.toString() || ''}
-          entity={entity || undefined}
-        />
-        {entity && (
-          <>
-            <Button
-              variant="contained"
-              color="primary"
-              className={actionsMenuClasses.actionsButton}
-              onClick={handleMenuOpen}
-              endIcon={<ArrowDropDownIcon />}
-            >
-              Actions
-            </Button>
-            <Menu
-              anchorEl={anchorEl}
-              open={Boolean(anchorEl)}
-              onClose={handleMenuClose}
-              anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
-              transformOrigin={{ horizontal: 'right', vertical: 'top' }}
-              classes={{ paper: actionsMenuClasses.menuPaper }}
-              getContentAnchorEl={null}
-            >
-              {isEntityPublishedToGithub(entity as Entity) && (
-                <MenuItem
-                  onClick={() => {
-                    handleBuild();
-                    handleMenuClose();
-                  }}
+      {scmIntegrationAuthError && entity ? (
+        <ScmIntegrationAuthError resourceLabel="execution environment" />
+      ) : (
+        <>
+          {/* Header */}
+          <Box className={pageClasses.header}>
+            <Header
+              templateName={templateName?.toString() || ''}
+              entity={entity || undefined}
+            />
+            {entity && (
+              <>
+                <Button
+                  variant="contained"
+                  color="primary"
+                  className={actionsMenuClasses.actionsButton}
+                  onClick={handleMenuOpen}
+                  endIcon={<ArrowDropDownIcon />}
                 >
-                  <ListItemIcon style={{ minWidth: 36 }}>
-                    <BuildIcon fontSize="small" />
-                  </ListItemIcon>
-                  <Typography variant="body2">Build</Typography>
-                </MenuItem>
-              )}
-              {!isDownloadExperience && [
-                <MenuItem
-                  key="edit-definition"
-                  onClick={() => {
-                    handleEditDefinition();
-                    handleMenuClose();
-                  }}
+                  Actions
+                </Button>
+                <Menu
+                  anchorEl={anchorEl}
+                  open={Boolean(anchorEl)}
+                  onClose={handleMenuClose}
+                  anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
+                  transformOrigin={{ horizontal: 'right', vertical: 'top' }}
+                  classes={{ paper: actionsMenuClasses.menuPaper }}
+                  getContentAnchorEl={null}
                 >
-                  <ListItemIcon style={{ minWidth: 36 }}>
-                    <EditIcon fontSize="small" />
-                  </ListItemIcon>
-                  <Typography variant="body2">Edit definition</Typography>
-                </MenuItem>,
-                <MenuItem
-                  key="view-in-source"
-                  onClick={() => {
-                    openSourceLocationUrl();
-                    handleMenuClose();
-                  }}
-                >
-                  <ListItemIcon style={{ minWidth: 36 }}>
-                    <OpenInNewIcon fontSize="small" />
-                  </ListItemIcon>
-                  <Typography variant="body2">View in source</Typography>
-                </MenuItem>,
-              ]}
-              <MenuItem
-                onClick={() => {
-                  setMenuId('1');
-                  handleMenuClose();
-                }}
-                className={actionsMenuClasses.deleteItem}
-              >
-                <ListItemIcon
-                  style={{ minWidth: 36 }}
-                  className={actionsMenuClasses.deleteItem}
-                >
-                  <DeleteIcon fontSize="small" />
-                </ListItemIcon>
-                <Typography variant="body2">Delete</Typography>
-              </MenuItem>
-            </Menu>
-          </>
-        )}
-      </Box>
-      <>
-        {' '}
-        {entity ? (
-          <>
-            {/* Tabs */}
-            <Tabs
-              value={tab}
-              onChange={(_, v) => setTab(v)}
-              style={{ marginTop: 16, marginBottom: 24 }}
-            >
-              <Tab label="Overview" />
-            </Tabs>
-
-            {/* Overview */}
-            {tab === 0 && (
-              <Box className={pageClasses.overviewGrid}>
-                {/* Left Column - README (stacks first on narrow) */}
-                <Box className={pageClasses.readmeWrapper}>
-                  <ReadmeCard
-                    readmeContent={entity?.spec.readme || defaultReadme}
-                  />
-                </Box>
-
-                {/* Right Column - About, Defined Content, Resources */}
-                <Box className={pageClasses.sidebar}>
-                  {/* Links Card */}
-                  {isDownloadExperience && (
-                    <LinksCard onDownloadArchive={handleDownloadArchive} />
+                  {isEntityPublishedToGithub(entity as Entity) && (
+                    <MenuItem
+                      onClick={() => {
+                        handleBuild();
+                        handleMenuClose();
+                      }}
+                    >
+                      <ListItemIcon style={{ minWidth: 36 }}>
+                        <BuildIcon fontSize="small" />
+                      </ListItemIcon>
+                      <Typography variant="body2">Build</Typography>
+                    </MenuItem>
                   )}
+                  {!isDownloadExperience && [
+                    <MenuItem
+                      key="edit-definition"
+                      onClick={() => {
+                        handleEditDefinition();
+                        handleMenuClose();
+                      }}
+                    >
+                      <ListItemIcon style={{ minWidth: 36 }}>
+                        <EditIcon fontSize="small" />
+                      </ListItemIcon>
+                      <Typography variant="body2">Edit definition</Typography>
+                    </MenuItem>,
+                    <MenuItem
+                      key="view-in-source"
+                      onClick={() => {
+                        openSourceLocationUrl();
+                        handleMenuClose();
+                      }}
+                    >
+                      <ListItemIcon style={{ minWidth: 36 }}>
+                        <OpenInNewIcon fontSize="small" />
+                      </ListItemIcon>
+                      <Typography variant="body2">View in source</Typography>
+                    </MenuItem>,
+                  ]}
+                  <MenuItem
+                    onClick={() => {
+                      setMenuId('1');
+                      handleMenuClose();
+                    }}
+                    className={actionsMenuClasses.deleteItem}
+                  >
+                    <ListItemIcon
+                      style={{ minWidth: 36 }}
+                      className={actionsMenuClasses.deleteItem}
+                    >
+                      <DeleteIcon fontSize="small" />
+                    </ListItemIcon>
+                    <Typography variant="body2">Delete</Typography>
+                  </MenuItem>
+                </Menu>
+              </>
+            )}
+          </Box>
+          <>
+            {' '}
+            {entity ? (
+              <>
+                {/* Tabs */}
+                <Tabs
+                  value={tab}
+                  onChange={(_, v) => setTab(v)}
+                  style={{ marginTop: 16, marginBottom: 24 }}
+                >
+                  <Tab label="Overview" />
+                </Tabs>
 
-                  {/* About Card */}
-                  <AboutCard
-                    entity={entity}
-                    ownerName={ownerName}
-                    baseImageName={parsedDefinition?.baseImageName ?? null}
-                    sourceLocationUrl={sourceLocationDisplayUrl}
-                    isRefreshing={isRefreshing}
-                    isDownloadExperience={isDownloadExperience}
-                    onRefresh={handleRefresh}
-                  />
+                {/* Overview */}
+                {tab === 0 && (
+                  <Box className={pageClasses.overviewGrid}>
+                    {/* Left Column - README (stacks first on narrow) */}
+                    <Box className={pageClasses.readmeWrapper}>
+                      <ReadmeCard
+                        readmeContent={entity?.spec.readme || defaultReadme}
+                      />
+                    </Box>
 
-                  {/* Defined Content Card */}
-                  <DefinedContentCard parsedDefinition={parsedDefinition} />
+                    {/* Right Column - About, Defined Content, Resources */}
+                    <Box className={pageClasses.sidebar}>
+                      {/* Links Card */}
+                      {isDownloadExperience && (
+                        <LinksCard onDownloadArchive={handleDownloadArchive} />
+                      )}
 
-                  <ResourcesCard />
-                </Box>
-              </Box>
+                      {/* About Card */}
+                      <AboutCard
+                        entity={entity}
+                        ownerName={ownerName}
+                        baseImageName={parsedDefinition?.baseImageName ?? null}
+                        sourceLocationUrl={sourceLocationDisplayUrl}
+                        isRefreshing={isRefreshing}
+                        isDownloadExperience={isDownloadExperience}
+                        onRefresh={handleRefresh}
+                      />
+
+                      {/* Defined Content Card */}
+                      <DefinedContentCard parsedDefinition={parsedDefinition} />
+
+                      <ResourcesCard />
+                    </Box>
+                  </Box>
+                )}
+              </>
+            ) : (
+              <> {entity !== false && <EntityNotFound />}</>
             )}
           </>
-        ) : (
-          <> {entity !== false && <EntityNotFound />}</>
-        )}
-      </>
+        </>
+      )}
     </Box>
   );
 };
