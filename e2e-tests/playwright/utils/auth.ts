@@ -7,14 +7,36 @@ import { authenticator } from 'otplib';
  */
 
 /**
- * Clicks Sign In for the RH AAP provider on the multi-provider sign-in screen.
- * Avoids strict-mode violations from multiple "Sign In" controls (e.g. GitHub + RH AAP).
+ * Clicks Sign In for the RH AAP provider.
+ * Handles both multi-provider (listitem with "RH AAP") and single-provider layouts.
  */
 export async function clickRhaapSignIn(page: Page) {
-  await page
+  // Multi-provider: listitem scoped button (avoids strict-mode violations)
+  const rhaapItem = page
     .getByRole('listitem')
     .filter({ hasText: /RH AAP/i })
-    .getByRole('button', { name: /^Sign In$/ })
+    .getByRole('button', { name: /^Sign In$/ });
+
+  if (await rhaapItem.isVisible({ timeout: 5000 }).catch(() => false)) {
+    await rhaapItem.click();
+    return;
+  }
+
+  // Single provider or different layout: click any visible Sign In button
+  console.log(
+    '[Auth] RH AAP listitem not found, trying generic Sign In button...',
+  );
+  const signInBtn = page.getByRole('button', { name: /Sign In/i }).first();
+  if (await signInBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    await signInBtn.click();
+    return;
+  }
+
+  // Last resort: click any element containing "Sign In"
+  console.log('[Auth] No Sign In button found, trying text match...');
+  await page
+    .getByText(/Sign In/i)
+    .first()
     .click();
 }
 
@@ -66,19 +88,34 @@ export async function loginAAP(page: Page) {
     console.log('[Auth] Not on login page but not authenticated either');
   }
 
-  console.log('[Auth] Clicking RH AAP Sign In button...');
-  await clickRhaapSignIn(page);
-
-  // Wait a moment for navigation (like Cypress wait)
-  await page.waitForLoadState('domcontentloaded');
-  console.log('[Auth] After Sign In click, URL:', page.url());
-
-  // Wait for AAP login page to load
-  const loginPageVisible = await page
+  // Check if portal auto-redirected to AAP login page (single-provider setup)
+  const alreadyOnLoginPage = await page
     .getByText('Log in to your account')
-    .waitFor({ state: 'visible', timeout: 20000 })
-    .then(() => true)
+    .isVisible()
     .catch(() => false);
+
+  let loginPageVisible: boolean;
+
+  if (alreadyOnLoginPage) {
+    console.log(
+      '[Auth] Already on AAP login page (auto-redirect from single provider)',
+    );
+    loginPageVisible = true;
+  } else {
+    console.log('[Auth] Clicking RH AAP Sign In button...');
+    await clickRhaapSignIn(page);
+
+    // Wait a moment for navigation (like Cypress wait)
+    await page.waitForLoadState('domcontentloaded');
+    console.log('[Auth] After Sign In click, URL:', page.url());
+
+    // Wait for AAP login page to load
+    loginPageVisible = await page
+      .getByText('Log in to your account')
+      .waitFor({ state: 'visible', timeout: 20000 })
+      .then(() => true)
+      .catch(() => false);
+  }
 
   if (loginPageVisible) {
     console.log('[Auth] AAP login page loaded, filling credentials...');
