@@ -54,10 +54,9 @@ export default defineConfig({
     viewport: { width: 1920, height: 1080 },
 
     // Action timeout (default for click, fill, etc.) - configurable for CI
-    // Recommended CI value: PLAYWRIGHT_ACTION_TIMEOUT=30000 (30s)
     actionTimeout: process.env.PLAYWRIGHT_ACTION_TIMEOUT
       ? parseInt(process.env.PLAYWRIGHT_ACTION_TIMEOUT)
-      : 10000,
+      : 30000, // 30s — must be high enough for OpenShift OAuth Sign In
 
     // Navigation timeout - configurable for CI
     // Recommended CI value: PLAYWRIGHT_NAVIGATION_TIMEOUT=30000 (30s)
