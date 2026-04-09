@@ -8,10 +8,14 @@ import {
 import { TestApiProvider } from '@backstage/test-utils';
 import { catalogApiRef } from '@backstage/plugin-catalog-react';
 import {
+  configApiRef,
   discoveryApiRef,
   identityApiRef,
   fetchApiRef,
 } from '@backstage/core-plugin-api';
+import { scmAuthApiRef } from '@backstage/integration-react';
+import { eeBuildApiRef } from '../../../apis';
+import { NotificationProvider, notificationStore } from '../../notifications';
 import { ThemeProvider, createMuiTheme } from '@material-ui/core/styles';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -158,6 +162,15 @@ delete (entityGitLabNoTree.spec as any).readme;
 
 const theme = createMuiTheme();
 
+const mockConfigApi = {
+  getOptionalString: jest.fn((key: string): string | undefined => {
+    if (key === 'ansible.rhaap.baseUrl') {
+      return 'https://aap.example.com';
+    }
+    return undefined;
+  }),
+};
+
 // ----------------- Helper render (provides catalog, discovery, identity, fetch APIs) -----------------
 const renderWithCatalogApi = (
   getEntitiesImpl: any,
@@ -192,29 +205,47 @@ const renderWithCatalogApi = (
       text: async () => '# Default README from fetch',
     }),
   };
+  const mockScmAuthApi = {
+    getCredentials: jest.fn().mockResolvedValue({ token: 't', headers: {} }),
+  };
+  const mockEeBuildApi = {
+    triggerBuild: jest.fn().mockResolvedValue({ accepted: true }),
+  };
 
-  return render(
+  const view = render(
     <MemoryRouter initialEntries={['/']}>
       <TestApiProvider
         apis={[
+          [configApiRef, mockConfigApi],
           [catalogApiRef, mockCatalogApi],
           [discoveryApiRef, mockDiscoveryApi],
           [identityApiRef, mockIdentityApi],
           [fetchApiRef, mockFetchApi],
+          [scmAuthApiRef, mockScmAuthApi],
+          [eeBuildApiRef, mockEeBuildApi],
         ]}
       >
-        <ThemeProvider theme={theme}>
-          <EEDetailsPage />
-        </ThemeProvider>
+        <NotificationProvider>
+          <ThemeProvider theme={theme}>
+            <EEDetailsPage />
+          </ThemeProvider>
+        </NotificationProvider>
       </TestApiProvider>
     </MemoryRouter>,
   );
+  return Object.assign(view, {
+    mockScmAuthApi,
+    mockCatalogApi,
+    mockEeBuildApi,
+  });
 };
 
 // ----------------- Tests -----------------
 describe('EEDetailsPage', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    sessionStorage.clear();
+    notificationStore.clearAll();
   });
 
   afterEach(() => {
@@ -686,5 +717,42 @@ describe('EEDetailsPage', () => {
     await waitFor(() =>
       expect(screen.getByTestId('unregister-dialog')).toBeInTheDocument(),
     );
+  });
+
+  test('Actions menu: clicking Build runs SCM auth and opens build dialog (GitHub-published EE)', async () => {
+    const { mockScmAuthApi } = renderWithCatalogApi(() =>
+      Promise.resolve({ items: [entityNoDownload] }),
+    );
+
+    await screen.findByTestId('favorite-entity');
+
+    fireEvent.click(screen.getByRole('button', { name: /Actions/i }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /^Build$/i }));
+
+    await waitFor(() =>
+      expect(mockScmAuthApi.getCredentials).toHaveBeenCalledWith({
+        url: 'https://github.com/owner/repo',
+      }),
+    );
+    expect(
+      await screen.findByText('Build execution environment image'),
+    ).toBeInTheDocument();
+  });
+
+  test('Actions menu: Build is hidden when EE is not published to GitHub', async () => {
+    renderWithCatalogApi(() =>
+      Promise.resolve({ items: [entityGitLabWithTree] }),
+    );
+
+    await screen.findByTestId('favorite-entity');
+
+    fireEvent.click(screen.getByRole('button', { name: /Actions/i }));
+
+    expect(
+      screen.queryByRole('menuitem', { name: /^Build$/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitem', { name: /Edit definition/i }),
+    ).toBeInTheDocument();
   });
 });
