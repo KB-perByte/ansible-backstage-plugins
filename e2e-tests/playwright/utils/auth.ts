@@ -14,7 +14,7 @@ export async function clickRhaapSignIn(page: Page) {
   // Multi-provider: listitem scoped button (avoids strict-mode violations)
   const rhaapItem = page
     .getByRole('listitem')
-    .filter({ hasText: /RH AAP/i })
+    .filter({ hasText: /RH AAP|Ansible Automation Platform/i })
     .getByRole('button', { name: /^Sign In$/ });
 
   if (await rhaapItem.isVisible({ timeout: 5000 }).catch(() => false)) {
